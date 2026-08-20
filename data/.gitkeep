@@ -1,0 +1,11 @@
+# Place your training datasets here
+# Example: url_dataset.csv
+#
+# Dataset format:
+# url,label
+# https://example.com,Legitimate
+# https://ads.example.com,Ad
+# https://tracker.example.com,Tracker
+# https://malware-site.com,Malware
+# https://phishing-site.com,Phishing
+# https://analytics.example.com,Analytics

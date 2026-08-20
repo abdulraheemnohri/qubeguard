@@ -1,17 +1,21 @@
 package com.qubeguard.app.engine
 
 import com.qubeguard.app.data.blocklist.DeterministicBlocker
-import com.qubeguard.app.ml.TfLiteClassifier
+import com.qubeguard.app.ml.MLClassifier
 import com.qubeguard.app.policy.PolicyEngine
 import javax.inject.Inject
 
 /**
  * The main Blocking Engine for QubeGuard.
- * Combines Layer 1 (Deterministic), Layer 2 (DNS/VPN), and Layer 3 (TFLite AI).
+ * Combines Layer 1 (Deterministic), Layer 2 (DNS/VPN), and Layer 3 (ML).
+ * 
+ * The ML layer can use either:
+ * - Local TFLite model (offline)
+ * - Hugging Face API (r3ddkahili/final-complete-malicious-url-model)
  */
 class BlockingEngine @Inject constructor(
     private val deterministicBlocker: DeterministicBlocker,
-    private val tfLiteClassifier: TfLiteClassifier,
+    private val mlClassifier: MLClassifier,
     private val policyEngine: PolicyEngine
 ) {
 
@@ -60,6 +64,37 @@ class BlockingEngine @Inject constructor(
      */
     fun getConfidenceScores(input: String): Map<String, Float> {
         return policyEngine.getConfidenceScores(input)
+    }
+
+    /**
+     * Enables Hugging Face API for ML classification.
+     * Uses r3ddkahili/final-complete-malicious-url-model
+     * Requires internet connectivity.
+     */
+    fun enableHuggingFace() {
+        policyEngine.enableHuggingFace()
+    }
+
+    /**
+     * Disables Hugging Face API and uses local TFLite model.
+     */
+    fun disableHuggingFace() {
+        policyEngine.disableHuggingFace()
+    }
+
+    /**
+     * Checks if Hugging Face API is enabled.
+     */
+    fun isHuggingFaceEnabled(): Boolean {
+        return policyEngine.isHuggingFaceEnabled()
+    }
+
+    /**
+     * Sets the Hugging Face API token.
+     * Get your token from: https://huggingface.co/settings/tokens
+     */
+    fun setHuggingFaceToken(token: String) {
+        policyEngine.setHuggingFaceToken(token)
     }
 
     /**

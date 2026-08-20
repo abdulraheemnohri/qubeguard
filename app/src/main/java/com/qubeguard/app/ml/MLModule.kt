@@ -24,10 +24,6 @@ object MLModule {
 
     @Provides
     @Singleton
-    fun provideFeatureExtractor(): FeatureExtractor = FeatureExtractor()
-
-    @Provides
-    @Singleton
     fun provideModelDownloader(
         context: android.content.Context
     ): ModelDownloader = ModelDownloader(context)

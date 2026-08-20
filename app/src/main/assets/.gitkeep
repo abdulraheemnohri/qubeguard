@@ -1,0 +1,2 @@
+# This directory is for storing the TFLite model file (qubeguard_model.tflite)
+# Add your model file here or it will be automatically downloaded from Constants.MODEL_URL

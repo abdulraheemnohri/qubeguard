@@ -45,6 +45,10 @@ android {
     }
 }
 
+room {
+    schemaDirectory("$projectDir/schemas")
+}
+
 dependencies {
     implementation("androidx.core:core-ktx:1.12.0")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.6.2")
@@ -69,7 +73,7 @@ dependencies {
 
     implementation("androidx.work:work-runtime-ktx:2.9.0")
 
-    // Local Hugging Face Transformer inference. TensorFlow Lite is not used.
+    // Optional local Hugging Face Transformer inference. TensorFlow Lite is not used.
     implementation("com.microsoft.onnxruntime:onnxruntime-android:1.28.0")
 
     // Secure model artifact downloader and hash verification.

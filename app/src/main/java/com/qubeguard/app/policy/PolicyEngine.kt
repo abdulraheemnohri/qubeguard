@@ -1,16 +1,20 @@
 package com.qubeguard.app.policy
 
 import com.qubeguard.app.data.blocklist.DeterministicBlocker
-import com.qubeguard.app.ml.TfLiteClassifier
+import com.qubeguard.app.ml.MLClassifier
 import javax.inject.Inject
 
 /**
  * Policy Engine for making final block/allow decisions.
- * Combines Layer 1 (Deterministic), Layer 2 (DNS/VPN), and Layer 3 (TFLite AI).
+ * Combines Layer 1 (Deterministic), Layer 2 (DNS/VPN), and Layer 3 (ML).
+ * 
+ * The ML layer can use either:
+ * - Local TFLite model (offline, fast)
+ * - Hugging Face API (online, more accurate with r3ddkahili/final-complete-malicious-url-model)
  */
 class PolicyEngine @Inject constructor(
     private val deterministicBlocker: DeterministicBlocker,
-    private val tfLiteClassifier: TfLiteClassifier
+    private val mlClassifier: MLClassifier
 ) {
 
     // Thresholds for ML-based blocking
@@ -60,8 +64,8 @@ class PolicyEngine @Inject constructor(
         }
 
         // Step 4: Check ML-based blocking (Layer 3)
-        val category = tfLiteClassifier.classify(input)
-        val confidenceScores = tfLiteClassifier.getConfidenceScores(input)
+        val category = mlClassifier.classify(input)
+        val confidenceScores = mlClassifier.getConfidenceScores(input)
 
         if (category != "Legitimate" && category != "Analytics") {
             val confidence = confidenceScores[category] ?: 0f
@@ -102,7 +106,7 @@ class PolicyEngine @Inject constructor(
      * @return The predicted category.
      */
     fun getCategory(input: String): String {
-        return tfLiteClassifier.classify(input)
+        return mlClassifier.classify(input)
     }
 
     /**
@@ -111,7 +115,38 @@ class PolicyEngine @Inject constructor(
      * @return A map of category to confidence score.
      */
     fun getConfidenceScores(input: String): Map<String, Float> {
-        return tfLiteClassifier.getConfidenceScores(input)
+        return mlClassifier.getConfidenceScores(input)
+    }
+
+    /**
+     * Enables Hugging Face API for ML classification.
+     * Uses r3ddkahili/final-complete-malicious-url-model
+     * Requires internet connectivity.
+     */
+    fun enableHuggingFace() {
+        mlClassifier.enableHuggingFace()
+    }
+
+    /**
+     * Disables Hugging Face API and uses local TFLite model.
+     */
+    fun disableHuggingFace() {
+        mlClassifier.disableHuggingFace()
+    }
+
+    /**
+     * Checks if Hugging Face API is enabled.
+     */
+    fun isHuggingFaceEnabled(): Boolean {
+        return mlClassifier.isHuggingFaceEnabled()
+    }
+
+    /**
+     * Sets the Hugging Face API token.
+     * Get your token from: https://huggingface.co/settings/tokens
+     */
+    fun setHuggingFaceToken(token: String) {
+        mlClassifier.setHuggingFaceToken(token)
     }
 
     /**

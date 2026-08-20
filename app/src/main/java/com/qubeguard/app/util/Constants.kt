@@ -20,7 +20,13 @@ object Constants {
 
     // ML Model
     const val MODEL_FILE_NAME = "qubeguard_model.tflite"
-    const val MODEL_URL = "https://example.com/models/qubeguard_model.tflite" // Replace with actual URL
+    // Default model URL (host your own model or use a public one)
+    // For testing, use the dummy model from scripts/generate_model.py
+    // For production, train a model using scripts/train_model.py and host it
+    const val MODEL_URL = "https://raw.githubusercontent.com/abdulraheemnohri/qubeguard/main/models/qubeguard_model.tflite"
+    
+    // Alternative public model URLs (uncomment to use)
+    // const val MODEL_URL = "https://your-server.com/models/qubeguard_model.tflite"
 
     // Blocklist
     const val DEFAULT_BLOCKLIST_SOURCES = """
@@ -51,12 +57,21 @@ object Constants {
                 "format": "hosts",
                 "license": "CC BY-SA 4.0",
                 "update_interval_hours": 48
+            },
+            {
+                "id": "adguard_mobile",
+                "name": "AdGuard Mobile",
+                "category": "ads",
+                "url": "https://adguardteam.github.io/AdGuardSDNSFilter/Filters/filter.txt",
+                "format": "adblock_plus",
+                "license": "GPLv3",
+                "update_interval_hours": 24
             }
         ]
     """
 
     // Feedback
-    const val FEEDBACK_UPLOAD_URL = "https://example.com/api/feedback" // Replace with actual URL
+    const val FEEDBACK_UPLOAD_URL = "https://your-server.com/api/feedback" // Replace with your endpoint
     const val FEEDBACK_UPLOAD_BATCH_SIZE = 10
 
     // Qube
@@ -67,10 +82,13 @@ object Constants {
     const val NETWORK_TIMEOUT_SECONDS = 30L
     const val DNS_QUERY_TIMEOUT_SECONDS = 10L
 
-    // Thresholds
+    // Thresholds for ML Classifier
     const val ML_AD_THRESHOLD = 0.7f
     const val ML_TRACKER_THRESHOLD = 0.7f
     const val ML_MALWARE_THRESHOLD = 0.85f
     const val ML_PHISHING_THRESHOLD = 0.8f
     const val ML_ANALYTICS_THRESHOLD = 0.75f
+    
+    // Default blocklist update interval (in hours)
+    const val DEFAULT_BLOCKLIST_UPDATE_INTERVAL = 24
 }

@@ -2,160 +2,69 @@ package com.qubeguard.app.policy
 
 import com.qubeguard.app.data.blocklist.DeterministicBlocker
 import com.qubeguard.app.ml.MLClassifier
+import com.qubeguard.app.ml.TransformerUrlClassifier
 import javax.inject.Inject
 
 /**
- * Policy Engine for making final block/allow decisions.
- * Combines Layer 1 (Deterministic), Layer 2 (DNS/VPN), and Layer 3 (ML).
- * 
- * The ML layer can use either:
- * - Local TFLite model (offline, fast)
- * - Hugging Face API (online, more accurate with r3ddkahili/final-complete-malicious-url-model)
+ * Final policy engine. Layer 3 is exclusively the local BERT Transformer
+ * from r3ddkahili/final-complete-malicious-url-model.
  */
 class PolicyEngine @Inject constructor(
     private val deterministicBlocker: DeterministicBlocker,
     private val mlClassifier: MLClassifier
 ) {
-
-    // Thresholds for ML-based blocking
     private val mlThresholds = mapOf(
-        "Ad" to 0.7f,
-        "Tracker" to 0.7f,
-        "Malware" to 0.85f,
-        "Phishing" to 0.8f,
-        "Analytics" to 0.75f
+        TransformerUrlClassifier.DEFACEMENT to 0.80f,
+        TransformerUrlClassifier.PHISHING to 0.80f,
+        TransformerUrlClassifier.MALWARE to 0.85f
     )
 
-    /**
-     * Makes a final decision on whether to block a URL/domain.
-     * @param input The URL or domain to check.
-     * @param isDnsRequest Whether this is a DNS request (Layer 2).
-     * @return A BlockDecision object with the result and reason.
-     */
     suspend fun decide(input: String, isDnsRequest: Boolean = false): BlockDecision {
-        // Step 1: Check if the input is explicitly allowed (Layer 1)
         if (deterministicBlocker.isAllowed(input)) {
-            return BlockDecision(
-                isBlocked = false,
-                reason = "Allowlisted (Layer 1)",
-                layer = 1,
-                confidence = 1.0f
-            )
+            return BlockDecision(false, "Allowlisted (Layer 1)", 1, 1.0f)
         }
 
-        // Step 2: Check if the input is blocked by deterministic rules (Layer 1)
         if (deterministicBlocker.isBlocked(input)) {
+            return BlockDecision(true, "Blocked by deterministic rules (Layer 1)", 1, 1.0f)
+        }
+
+        if (isDnsRequest) {
+            return BlockDecision(false, "Allowed (Layer 2 - DNS)", 2, 1.0f)
+        }
+
+        if (!mlClassifier.isModelLoaded()) {
+            return BlockDecision(false, "ML model unavailable; deterministic policy only", 0, 0f)
+        }
+
+        val category = mlClassifier.classify(input)
+        val confidence = mlClassifier.getConfidenceScores(input)[category] ?: 0f
+        val threshold = mlThresholds[category]
+
+        if (threshold != null && confidence >= threshold) {
             return BlockDecision(
                 isBlocked = true,
-                reason = "Blocked by deterministic rules (Layer 1)",
-                layer = 1,
-                confidence = 1.0f
+                reason = "Blocked by local Transformer (Layer 3 - $category)",
+                layer = 3,
+                confidence = confidence
             )
         }
 
-        // Step 3: For DNS requests (Layer 2), use deterministic blocking only
-        if (isDnsRequest) {
-            return BlockDecision(
-                isBlocked = false,
-                reason = "Allowed (Layer 2 - DNS)",
-                layer = 2,
-                confidence = 1.0f
-            )
-        }
-
-        // Step 4: Check ML-based blocking (Layer 3)
-        val category = mlClassifier.classify(input)
-        val confidenceScores = mlClassifier.getConfidenceScores(input)
-
-        if (category != "Legitimate" && category != "Analytics") {
-            val confidence = confidenceScores[category] ?: 0f
-            val threshold = mlThresholds[category] ?: 0.5f
-
-            if (confidence >= threshold) {
-                return BlockDecision(
-                    isBlocked = true,
-                    reason = "Blocked by ML classifier (Layer 3 - $category)",
-                    layer = 3,
-                    confidence = confidence
-                )
-            }
-        }
-
-        // Step 5: Default decision (allow)
-        return BlockDecision(
-            isBlocked = false,
-            reason = "Allowed (No match in any layer)",
-            layer = 0,
-            confidence = 0f
-        )
+        return BlockDecision(false, "Allowed (no deterministic or Transformer match)", 0, confidence)
     }
 
-    /**
-     * Checks if a URL/domain is blocked without providing a reason.
-     * @param input The URL or domain to check.
-     * @param isDnsRequest Whether this is a DNS request (Layer 2).
-     * @return True if the input is blocked.
-     */
-    suspend fun isBlocked(input: String, isDnsRequest: Boolean = false): Boolean {
-        return decide(input, isDnsRequest).isBlocked
-    }
+    suspend fun isBlocked(input: String, isDnsRequest: Boolean = false): Boolean =
+        decide(input, isDnsRequest).isBlocked
 
-    /**
-     * Gets the category of a URL/domain (e.g., "Ad", "Tracker", "Malware").
-     * @param input The URL or domain to check.
-     * @return The predicted category.
-     */
-    fun getCategory(input: String): String {
-        return mlClassifier.classify(input)
-    }
+    fun getCategory(input: String): String =
+        if (mlClassifier.isModelLoaded()) mlClassifier.classify(input) else "Unknown"
 
-    /**
-     * Gets the confidence scores for all categories.
-     * @param input The URL or domain to check.
-     * @return A map of category to confidence score.
-     */
-    fun getConfidenceScores(input: String): Map<String, Float> {
-        return mlClassifier.getConfidenceScores(input)
-    }
+    fun getConfidenceScores(input: String): Map<String, Float> =
+        if (mlClassifier.isModelLoaded()) mlClassifier.getConfidenceScores(input) else emptyMap()
 
-    /**
-     * Enables Hugging Face API for ML classification.
-     * Uses r3ddkahili/final-complete-malicious-url-model
-     * Requires internet connectivity.
-     */
-    fun enableHuggingFace() {
-        mlClassifier.enableHuggingFace()
-    }
-
-    /**
-     * Disables Hugging Face API and uses local TFLite model.
-     */
-    fun disableHuggingFace() {
-        mlClassifier.disableHuggingFace()
-    }
-
-    /**
-     * Checks if Hugging Face API is enabled.
-     */
-    fun isHuggingFaceEnabled(): Boolean {
-        return mlClassifier.isHuggingFaceEnabled()
-    }
-
-    /**
-     * Sets the Hugging Face API token.
-     * Get your token from: https://huggingface.co/settings/tokens
-     */
-    fun setHuggingFaceToken(token: String) {
-        mlClassifier.setHuggingFaceToken(token)
-    }
-
-    /**
-     * Represents a block/allow decision.
-     */
     data class BlockDecision(
         val isBlocked: Boolean,
         val reason: String,
-        val layer: Int, // 1 = Deterministic, 2 = DNS/VPN, 3 = ML
+        val layer: Int,
         val confidence: Float
     )
 }

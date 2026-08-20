@@ -1,8 +1,0 @@
-# Place your TFLite model files here for hosting
-# Example: qubeguard_model.tflite
-# 
-# To use a hosted model:
-# 1. Upload your model to this directory
-# 2. Update Constants.MODEL_URL to:
-#    const val MODEL_URL = "https://raw.githubusercontent.com/abdulraheemnohri/qubeguard/main/models/qubeguard_model.tflite"
-# 3. The app will automatically download it

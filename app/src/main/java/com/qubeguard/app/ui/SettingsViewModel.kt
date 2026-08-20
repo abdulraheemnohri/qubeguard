@@ -1,10 +1,11 @@
 package com.qubeguard.app.ui
 
-import android.app.Application
 import androidx.lifecycle.AndroidViewModel
+import android.app.Application
 import androidx.lifecycle.LiveData
 import androidx.lifecycle.MutableLiveData
 import androidx.lifecycle.viewModelScope
+import com.qubeguard.app.QubeGuardApp
 import com.qubeguard.app.browser.QubeManager
 import com.qubeguard.app.browser.QubeProfile
 import com.qubeguard.app.data.blocklist.BlocklistDao
@@ -24,18 +25,19 @@ class SettingsViewModel @Inject constructor(
     private val modelDownloader: ModelDownloader
 ) : AndroidViewModel(application) {
 
+    private val preferences = application.getSharedPreferences(PREFERENCES, Application.MODE_PRIVATE)
+
     private val _blocklistSources = MutableLiveData<List<BlocklistSource>>(emptyList())
     val blocklistSources: LiveData<List<BlocklistSource>> = _blocklistSources
 
     private val _qubeProfiles = MutableLiveData<List<QubeProfile>>(emptyList())
     val qubeProfiles: LiveData<List<QubeProfile>> = _qubeProfiles
 
-    private val _isMlEnabled = MutableLiveData(true)
+    private val _isMlEnabled = MutableLiveData(preferences.getBoolean(KEY_AI_ENABLED, false))
     val isMlEnabled: LiveData<Boolean> = _isMlEnabled
 
-    // Kept for settings-screen compatibility; remote HF inference is removed.
-    private val _isHuggingFaceEnabled = MutableLiveData(false)
-    val isHuggingFaceEnabled: LiveData<Boolean> = _isHuggingFaceEnabled
+    private val _isAutoModelUpdateEnabled = MutableLiveData(preferences.getBoolean(KEY_AUTO_UPDATE, false))
+    val isAutoModelUpdateEnabled: LiveData<Boolean> = _isAutoModelUpdateEnabled
 
     private val _isTelemetryEnabled = MutableLiveData(false)
     val isTelemetryEnabled: LiveData<Boolean> = _isTelemetryEnabled
@@ -75,24 +77,40 @@ class SettingsViewModel @Inject constructor(
         loadQubeProfiles()
     }
 
-    fun setMlEnabled(enabled: Boolean) { _isMlEnabled.value = enabled }
+    fun setMlEnabled(enabled: Boolean) {
+        preferences.edit().putBoolean(KEY_AI_ENABLED, enabled).apply()
+        _isMlEnabled.value = enabled
+        if (enabled) {
+            loadModel()
+        } else {
+            mlClassifier.close()
+        }
+    }
 
-    /** Remote Hugging Face inference is intentionally unsupported. */
-    fun setHuggingFaceEnabled(enabled: Boolean) { _isHuggingFaceEnabled.value = false }
-    fun disableLocalModel() { _isMlEnabled.value = false }
-    fun enableLocalModel() { _isMlEnabled.value = true; loadModel() }
-    fun setHuggingFaceToken(token: String) = Unit
+    fun setAutoModelUpdateEnabled(enabled: Boolean) {
+        preferences.edit().putBoolean(KEY_AUTO_UPDATE, enabled).apply()
+        _isAutoModelUpdateEnabled.value = enabled
+        val app = getApplication<QubeGuardApp>()
+        if (enabled && isMlEnabled.value == true) {
+            app.enableAutomaticModelUpdates()
+        } else {
+            app.disableAutomaticModelUpdates()
+        }
+    }
 
-    fun setTelemetryEnabled(enabled: Boolean) { _isTelemetryEnabled.value = enabled }
+    fun disableLocalModel() = setMlEnabled(false)
+    fun enableLocalModel() = setMlEnabled(true)
 
     fun loadModel() {
+        if (isMlEnabled.value != true) return
         viewModelScope.launch {
             if (!modelDownloader.isModelReady()) modelDownloader.ensureModel()
-            mlClassifier.loadModel()
+            if (modelDownloader.isModelReady()) mlClassifier.loadModel()
         }
     }
 
     fun updateModel() {
+        if (isMlEnabled.value != true) return
         viewModelScope.launch {
             if (modelDownloader.updateModel()) {
                 mlClassifier.close()
@@ -101,6 +119,17 @@ class SettingsViewModel @Inject constructor(
         }
     }
 
+    fun deleteLocalModel() {
+        mlClassifier.close()
+        modelDownloader.deleteModel()
+    }
+
     fun isModelLoaded(): Boolean = mlClassifier.isModelLoaded()
     fun isModelDownloaded(): Boolean = modelDownloader.isModelReady()
+
+    companion object {
+        private const val PREFERENCES = "qubeguard_settings"
+        private const val KEY_AI_ENABLED = "ai_enabled"
+        private const val KEY_AUTO_UPDATE = "ai_auto_update"
+    }
 }

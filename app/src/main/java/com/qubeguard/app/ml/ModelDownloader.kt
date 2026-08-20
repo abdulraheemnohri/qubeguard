@@ -6,6 +6,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import org.json.JSONObject
 import java.io.File
 import java.io.FileOutputStream
 import java.security.MessageDigest
@@ -14,13 +15,14 @@ import javax.inject.Inject
 import javax.inject.Singleton
 
 /**
- * Downloads the mobile-optimized ONNX export of the QubeGuard malicious URL
- * Transformer. The training/source checkpoint is:
+ * Downloads the mobile ONNX export of the selected Hugging Face Transformer.
+ *
+ * Source model:
  * r3ddkahili/final-complete-malicious-url-model
  *
- * The source Hub repository is a 438 MB safetensors BERT checkpoint. Android
- * does not execute safetensors directly, so the build pipeline exports it to
- * ONNX and publishes the mobile artifact to the runtime repository below.
+ * Android executes the exported ONNX artifact locally with ONNX Runtime.
+ * The source repository remains the canonical model/metadata source; the
+ * runtime repository contains the Android-ready ONNX artifact.
  */
 @Singleton
 class ModelDownloader @Inject constructor(
@@ -33,8 +35,12 @@ class ModelDownloader @Inject constructor(
 
         private const val MODEL_FILE = "model.onnx"
         private const val VOCAB_FILE = "vocab.txt"
+        private const val TOKENIZER_FILE = "tokenizer.json"
+        private const val TOKENIZER_CONFIG_FILE = "tokenizer_config.json"
+        private const val SPECIAL_TOKENS_FILE = "special_tokens_map.json"
         private const val CONFIG_FILE = "config.json"
         private const val MANIFEST_FILE = "manifest.json"
+        private const val VERSION_FILE = "version.txt"
 
         private const val MODEL_BASE_URL =
             "https://huggingface.co/$RUNTIME_MODEL/resolve/$DEFAULT_REVISION"
@@ -42,7 +48,8 @@ class ModelDownloader @Inject constructor(
 
     private val client = OkHttpClient.Builder()
         .connectTimeout(30, TimeUnit.SECONDS)
-        .readTimeout(5, TimeUnit.MINUTES)
+        .readTimeout(10, TimeUnit.MINUTES)
+        .callTimeout(15, TimeUnit.MINUTES)
         .build()
 
     private val modelDir = File(context.filesDir, "models/qubeguard-transformer")
@@ -60,10 +67,14 @@ class ModelDownloader @Inject constructor(
 
     fun isModelReady(): Boolean =
         File(modelDir, MODEL_FILE).let { it.exists() && it.length() > 1_000_000L } &&
-            File(modelDir, VOCAB_FILE).exists()
+            File(modelDir, VOCAB_FILE).exists() &&
+            File(modelDir, TOKENIZER_FILE).exists() &&
+            File(modelDir, CONFIG_FILE).exists() &&
+            File(modelDir, MANIFEST_FILE).exists()
 
     fun modelFile(): File = File(modelDir, MODEL_FILE)
     fun vocabFile(): File = File(modelDir, VOCAB_FILE)
+    fun tokenizerFile(): File = File(modelDir, TOKENIZER_FILE)
     fun configFile(): File = File(modelDir, CONFIG_FILE)
     fun manifestFile(): File = File(modelDir, MANIFEST_FILE)
 
@@ -73,28 +84,40 @@ class ModelDownloader @Inject constructor(
 
     private fun downloadRuntimeFiles(): Boolean {
         return try {
-            val manifest = download("$MODEL_BASE_URL/$MANIFEST_FILE")
-                ?: return false
-            writeAtomically(manifestFile(), manifest)
+            val manifestBytes = download("$MODEL_BASE_URL/$MANIFEST_FILE") ?: return false
+            val manifest = JSONObject(manifestBytes.toString(Charsets.UTF_8))
+            require(manifest.optString("source_model") == SOURCE_MODEL)
+            require(manifest.optString("runtime") == "onnxruntime-android")
+            require(manifest.optString("model_file") == MODEL_FILE)
 
-            val manifestText = manifest.toString(Charsets.UTF_8)
-            val modelSha = Regex("\\\"sha256\\\"\\s*:\\s*\\\"([a-fA-F0-9]{64})\\\"")
-                .find(manifestText)?.groupValues?.get(1)
-            val expectedVersion = Regex("\\\"version\\\"\\s*:\\s*\\\"([^\\\"]+)\\\"")
-                .find(manifestText)?.groupValues?.get(1)
+            val expectedVersion = manifest.optString("version").takeIf { it.isNotBlank() }
+            val modelSha = manifest.optString("sha256").takeIf { it.matches(Regex("[a-fA-F0-9]{64}")) }
+            val tokenizerSha = manifest.optString("tokenizer_sha256")
+                .takeIf { it.matches(Regex("[a-fA-F0-9]{64}")) }
 
-            val currentVersion = readVersion()
-            if (currentVersion == expectedVersion && isModelReady()) return true
+            if (isModelReady() && readVersion() == expectedVersion) return true
 
             val model = download("$MODEL_BASE_URL/$MODEL_FILE") ?: return false
             if (modelSha != null && sha256(model) != modelSha.lowercase()) return false
-            writeAtomically(modelFile(), model)
 
             val vocab = download("$MODEL_BASE_URL/$VOCAB_FILE") ?: return false
-            writeAtomically(vocabFile(), vocab)
+            val tokenizer = download("$MODEL_BASE_URL/$TOKENIZER_FILE") ?: return false
+            if (tokenizerSha != null && sha256(tokenizer) != tokenizerSha.lowercase()) return false
 
-            download("$MODEL_BASE_URL/$CONFIG_FILE")?.let { writeAtomically(configFile(), it) }
+            val config = download("$MODEL_BASE_URL/$CONFIG_FILE") ?: return false
+            val tokenizerConfig = download("$MODEL_BASE_URL/$TOKENIZER_CONFIG_FILE") ?: return false
+            val specialTokens = download("$MODEL_BASE_URL/$SPECIAL_TOKENS_FILE") ?: return false
+
+            // Install only after every required artifact has been downloaded and verified.
+            writeAtomically(modelFile(), model)
+            writeAtomically(vocabFile(), vocab)
+            writeAtomically(tokenizerFile(), tokenizer)
+            writeAtomically(configFile(), config)
+            writeAtomically(File(modelDir, TOKENIZER_CONFIG_FILE), tokenizerConfig)
+            writeAtomically(File(modelDir, SPECIAL_TOKENS_FILE), specialTokens)
+            writeAtomically(manifestFile(), manifestBytes)
             writeVersion(expectedVersion ?: sha256(model))
+
             isModelReady()
         } catch (_: Exception) {
             false
@@ -104,7 +127,7 @@ class ModelDownloader @Inject constructor(
     private fun download(url: String): ByteArray? {
         val request = Request.Builder()
             .url(url)
-            .header("User-Agent", "QubeGuard-Android")
+            .header("User-Agent", "QubeGuard-Android/1.0")
             .build()
         client.newCall(request).execute().use { response ->
             if (!response.isSuccessful) return null
@@ -113,6 +136,7 @@ class ModelDownloader @Inject constructor(
     }
 
     private fun writeAtomically(target: File, bytes: ByteArray) {
+        target.parentFile?.mkdirs()
         val temp = File(target.parentFile, "${target.name}.part")
         FileOutputStream(temp).use { it.write(bytes) }
         if (target.exists()) target.delete()
@@ -120,10 +144,10 @@ class ModelDownloader @Inject constructor(
     }
 
     private fun readVersion(): String? =
-        File(modelDir, "version.txt").takeIf { it.exists() }?.readText()?.trim()
+        File(modelDir, VERSION_FILE).takeIf { it.exists() }?.readText()?.trim()
 
     private fun writeVersion(version: String) {
-        File(modelDir, "version.txt").writeText(version)
+        writeAtomically(File(modelDir, VERSION_FILE), version.toByteArray())
     }
 
     private fun sha256(bytes: ByteArray): String =

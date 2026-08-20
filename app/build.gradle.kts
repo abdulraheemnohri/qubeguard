@@ -1,6 +1,7 @@
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
+    id("org.jetbrains.kotlin.kapt")
     id("com.google.dagger.hilt.android")
     id("androidx.room")
 }
@@ -63,14 +64,14 @@ dependencies {
     implementation("com.google.dagger:hilt-android:2.48")
     kapt("com.google.dagger:hilt-compiler:2.48")
     implementation("androidx.hilt:hilt-work:1.1.0")
+    kapt("androidx.hilt:hilt-compiler:1.1.0")
 
     implementation("androidx.work:work-runtime-ktx:2.9.0")
 
-    // Local Transformer inference: Hugging Face BERT exported to ONNX.
-    // TensorFlow Lite is intentionally not included.
+    // Local Hugging Face Transformer inference. TensorFlow Lite is not used.
     implementation("com.microsoft.onnxruntime:onnxruntime-android:1.28.0")
 
-    // Automatic model download and SHA-256 verification.
+    // Secure model artifact downloader and hash verification.
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
 
     implementation("androidx.lifecycle:lifecycle-service:2.6.2")

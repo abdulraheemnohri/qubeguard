@@ -6,7 +6,3 @@ plugins {
     id("com.google.dagger.hilt.android") version "2.48" apply false
     id("androidx.room") version "2.6.1" apply false
 }
-
-tasks.named("clean") {
-    delete(rootProject.layout.buildDirectory)
-}

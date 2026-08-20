@@ -31,7 +31,8 @@ class QubeGuardApp : Application(), androidx.work.Configuration.Provider {
 
     private fun networkConstraints(): Constraints =
         Constraints.Builder()
-            .setRequiredNetworkType(NetworkType.CONNECTED)
+            // The model is large; automatic updates never consume metered cellular data.
+            .setRequiredNetworkType(NetworkType.UNMETERED)
             .build()
 
     private fun scheduleModelUpdates() {

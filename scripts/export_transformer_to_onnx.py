@@ -16,7 +16,7 @@ from pathlib import Path
 
 from onnxruntime.quantization import QuantType, quantize_dynamic
 from optimum.onnxruntime import ORTModelForSequenceClassification
-from transformers import AutoTokenizer
+from transformers import AutoConfig, AutoTokenizer
 
 SOURCE_MODEL = "r3ddkahili/final-complete-malicious-url-model"
 OUTPUT_DIR = Path("dist/qubeguard-transformer")
@@ -35,13 +35,12 @@ def main() -> None:
     float_dir = OUTPUT_DIR / "float32"
     float_dir.mkdir(parents=True, exist_ok=True)
 
-    model = ORTModelForSequenceClassification.from_pretrained(
-        SOURCE_MODEL,
-        export=True,
-    )
+    model = ORTModelForSequenceClassification.from_pretrained(SOURCE_MODEL, export=True)
     tokenizer = AutoTokenizer.from_pretrained(SOURCE_MODEL)
+    config = AutoConfig.from_pretrained(SOURCE_MODEL)
     model.save_pretrained(float_dir)
     tokenizer.save_pretrained(float_dir)
+    config.save_pretrained(float_dir)
 
     float_model = float_dir / "model.onnx"
     mobile_model = OUTPUT_DIR / "model.onnx"
@@ -56,29 +55,38 @@ def main() -> None:
         reduce_range=True,
     )
 
-    for filename in (
+    required_files = (
         "vocab.txt",
         "tokenizer.json",
         "tokenizer_config.json",
         "special_tokens_map.json",
         "config.json",
-    ):
+    )
+    for filename in required_files:
         source = float_dir / filename
-        if source.exists():
-            (OUTPUT_DIR / filename).write_bytes(source.read_bytes())
+        if not source.exists():
+            raise FileNotFoundError(source)
+        (OUTPUT_DIR / filename).write_bytes(source.read_bytes())
+
+    id2label = {str(k): v for k, v in config.id2label.items()}
+    labels = [id2label[str(i)] for i in range(config.num_labels)]
 
     manifest = {
         "source_model": SOURCE_MODEL,
+        "source_revision": "main",
         "runtime": "onnxruntime-android",
-        "architecture": "BertForSequenceClassification",
+        "architecture": config.architectures[0] if config.architectures else "BertForSequenceClassification",
         "quantization": "dynamic-int8",
         "max_length": 128,
-        "labels": ["Benign", "Defacement", "Phishing", "Malware"],
+        "num_labels": config.num_labels,
+        "labels": labels,
         "version": sha256(mobile_model),
         "sha256": sha256(mobile_model),
         "model_file": "model.onnx",
         "vocab_file": "vocab.txt",
+        "tokenizer_file": "tokenizer.json",
         "config_file": "config.json",
+        "tokenizer_sha256": sha256(OUTPUT_DIR / "tokenizer.json"),
     }
     (OUTPUT_DIR / "manifest.json").write_text(
         json.dumps(manifest, indent=2) + "\n",

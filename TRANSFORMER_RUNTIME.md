@@ -1,6 +1,6 @@
 # QubeGuard Local Transformer Runtime
 
-QubeGuard Layer 3 now uses a local Transformer model and does not use TensorFlow Lite or remote Hugging Face inference.
+Layer 3 is an **optional** local AI security feature. QubeGuard remains fully functional with Layer 3 disabled or when the model is unavailable.
 
 ## Source model
 
@@ -13,64 +13,38 @@ The source model is a BERT sequence classifier with four classes:
 - Phishing
 - Malware
 
-The Hugging Face repository currently publishes a 438 MB `model.safetensors` checkpoint plus tokenizer/config files. It does not publish an Android-ready ONNX artifact, so QubeGuard does **not** attempt to execute the safetensors file directly on Android.
+The model is used only for malicious URL classification. Ads and trackers continue to be handled by deterministic blocklists/DNS rules.
 
 ## Mobile runtime
 
-The model is exported with Hugging Face Optimum to ONNX and dynamically quantized to INT8. The Android app runs that artifact with `onnxruntime-android`.
+The Android application executes an Android-ready ONNX representation with `onnxruntime-android`. The original Hugging Face/PyTorch checkpoint is not executed directly on Android.
 
-Pipeline:
+The mobile model artifact is expected to be supplied through the configured model source used by the application. QubeGuard does not publish or deploy model artifacts to a separate GitHub/Hugging Face repository.
 
-```text
-Hugging Face BERT checkpoint
-        |
-        v
-Optimum ONNX export
-        |
-        v
-ONNX dynamic INT8 quantization
-        |
-        v
-QubeGuard Transformer model repository
-        |
-        v
-Automatic Android download + SHA-256 verification
-        |
-        v
-ONNX Runtime Android
-        |
-        v
-Local URL classification
-```
+## Optional AI behavior
+
+If the user disables **Layer 3 / AI Protection**, QubeGuard uses Layer 1 and Layer 2 only.
+
+If Layer 3 is enabled but the model is not downloaded, invalid, unavailable, or fails to load, QubeGuard automatically falls back to deterministic protection. The app must never fail closed merely because the optional AI model is unavailable.
 
 ## Automatic model updates
 
-`QubeGuardApp` schedules an initial network-constrained download and a daily update check. The runtime stores the model under private app storage and verifies the SHA-256 value from `manifest.json` before installation.
+WorkManager may check for a newer configured model when the user enables automatic model updates. Model downloads are stored in private app storage and verified before activation.
 
 No browsing URL is sent to a remote inference API.
 
-## Publishing the runtime artifact
-
-The repository contains `.github/workflows/publish-transformer-model.yml`.
-
-Create a GitHub Actions secret named `HUGGINGFACE_HUB_TOKEN` with permission to create/write model repositories. The workflow exports the source checkpoint and publishes the mobile artifact to:
-
-`abdulraheemnohri/qubeguard-transformer-model`
-
-The Android downloader expects that repository.
-
-## Why ONNX instead of executing safetensors directly?
-
-The selected checkpoint is a Transformers/PyTorch BERT checkpoint. Android needs an inference representation and runtime that can execute it efficiently. Hugging Face documents ONNX export for Transformers models, and ONNX Runtime provides an Android Java/Kotlin package. This keeps the **model architecture Transformer** while using a production mobile inference runtime.
-
-## Blocking policy
+## Local policy
 
 The selected model does not classify ads or trackers. Its four outputs are used for malicious URL detection. Deterministic blocklists remain responsible for advertising/tracking categories.
 
-Layer 3 blocks when confidence reaches the configured threshold:
+Default AI thresholds:
 
 - Defacement: `>= 0.80`
 - Phishing: `>= 0.80`
 - Malware: `>= 0.85`
 
-Benign URLs are allowed by the ML layer.
+All thresholds are user-configurable.
+
+## GitHub policy
+
+QubeGuard's GitHub repository contains source code and CI only. It does **not** deploy the model to GitHub or create a separate model repository. No `HUGGINGFACE_HUB_TOKEN` or model-publishing secret is required.

@@ -19,21 +19,20 @@ class MLClassifier @Inject constructor(
 
     fun getConfidenceScores(url: String): Map<String, Float> {
         val prediction = transformer.classify(url)
+        val labels = listOf(
+            TransformerUrlClassifier.BENIGN,
+            TransformerUrlClassifier.DEFACEMENT,
+            TransformerUrlClassifier.PHISHING,
+            TransformerUrlClassifier.MALWARE
+        )
         return prediction.probabilities.mapIndexed { index, score ->
-            TransformerUrlClassifier.run {
-                when (index) {
-                    0 -> BENIGN
-                    1 -> DEFACEMENT
-                    2 -> PHISHING
-                    3 -> MALWARE
-                    else -> "Unknown"
-                }
-            } to score
+            labels.getOrElse(index) { "Unknown" } to score
         }.toMap()
     }
 
     fun isBlocked(url: String): Boolean = transformer.isBlocked(url)
 
+    /** The selected model has no tracker class; deterministic lists handle trackers. */
     fun isTracker(url: String): Boolean = false
 
     fun isMalware(url: String): Boolean = classify(url) == TransformerUrlClassifier.MALWARE

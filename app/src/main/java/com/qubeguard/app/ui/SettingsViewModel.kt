@@ -8,6 +8,7 @@ import com.qubeguard.app.browser.QubeManager
 import com.qubeguard.app.browser.QubeProfile
 import com.qubeguard.app.data.blocklist.BlocklistDao
 import com.qubeguard.app.data.blocklist.BlocklistSource
+import com.qubeguard.app.engine.BlockingEngine
 import com.qubeguard.app.ml.TfLiteClassifier
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
@@ -21,7 +22,8 @@ class SettingsViewModel @Inject constructor(
     application: Application,
     private val blocklistDao: BlocklistDao,
     private val qubeManager: QubeManager,
-    private val tfLiteClassifier: TfLiteClassifier
+    private val tfLiteClassifier: TfLiteClassifier,
+    private val blockingEngine: BlockingEngine
 ) : AndroidViewModel(application) {
 
     private val _blocklistSources = MutableLiveData<List<BlocklistSource>>(emptyList())
@@ -32,6 +34,9 @@ class SettingsViewModel @Inject constructor(
 
     private val _isMlEnabled = MutableLiveData<Boolean>(true)
     val isMlEnabled: LiveData<Boolean> = _isMlEnabled
+
+    private val _isHuggingFaceEnabled = MutableLiveData<Boolean>(false)
+    val isHuggingFaceEnabled: LiveData<Boolean> = _isHuggingFaceEnabled
 
     private val _isTelemetryEnabled = MutableLiveData<Boolean>(false)
     val isTelemetryEnabled: LiveData<Boolean> = _isTelemetryEnabled
@@ -104,6 +109,41 @@ class SettingsViewModel @Inject constructor(
     }
 
     /**
+     * Enables or disables Hugging Face API.
+     * When enabled, uses r3ddkahili/final-complete-malicious-url-model
+     */
+    fun setHuggingFaceEnabled(enabled: Boolean) {
+        _isHuggingFaceEnabled.value = enabled
+        if (enabled) {
+            blockingEngine.enableHuggingFace()
+        } else {
+            blockingEngine.disableHuggingFace()
+        }
+    }
+
+    /**
+     * Disables local TFLite model.
+     */
+    fun disableLocalModel() {
+        // Local model is automatically disabled when Hugging Face is enabled
+    }
+
+    /**
+     * Enables local TFLite model.
+     */
+    fun enableLocalModel() {
+        // Local model is automatically enabled when Hugging Face is disabled
+    }
+
+    /**
+     * Sets the Hugging Face API token.
+     * Get your token from: https://huggingface.co/settings/tokens
+     */
+    fun setHuggingFaceToken(token: String) {
+        blockingEngine.setHuggingFaceToken(token)
+    }
+
+    /**
      * Enables or disables telemetry (feedback upload).
      */
     fun setTelemetryEnabled(enabled: Boolean) {
@@ -121,7 +161,6 @@ class SettingsViewModel @Inject constructor(
      * Checks if the TFLite model is loaded.
      */
     fun isModelLoaded(): Boolean {
-        // In a real implementation, this would check the classifier's state
-        return true
+        return tfLiteClassifier.isModelLoaded()
     }
 }

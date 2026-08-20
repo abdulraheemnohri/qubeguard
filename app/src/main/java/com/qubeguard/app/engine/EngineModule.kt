@@ -17,9 +17,9 @@ object EngineModule {
     @Singleton
     fun provideBlockingEngine(
         deterministicBlocker: com.qubeguard.app.data.blocklist.DeterministicBlocker,
-        tfLiteClassifier: com.qubeguard.app.ml.TfLiteClassifier,
+        mlClassifier: com.qubeguard.app.ml.MLClassifier,
         policyEngine: com.qubeguard.app.policy.PolicyEngine
     ): BlockingEngine {
-        return BlockingEngine(deterministicBlocker, tfLiteClassifier, policyEngine)
+        return BlockingEngine(deterministicBlocker, mlClassifier, policyEngine)
     }
 }

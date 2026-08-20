@@ -4,125 +4,117 @@ import android.content.Intent
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
+import androidx.compose.material3.Card
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.livedata.observeAsState
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.tooling.preview.Preview
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.qubeguard.app.ui.theme.QubeGuardTheme
 import dagger.hilt.android.AndroidEntryPoint
 
-/**
- * Main Activity for QubeGuard.
- * Displays the home screen with VPN toggle, browser launcher, and settings.
- */
 @AndroidEntryPoint
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        setContent {
-            QubeGuardTheme {
-                Surface(
-                    modifier = Modifier.fillMaxSize(),
-                    color = MaterialTheme.colorScheme.background
-                ) {
-                    MainScreen()
-                }
-            }
-        }
+        setContent { QubeGuardTheme { MainScreen() } }
     }
 }
 
 @Composable
 fun MainScreen() {
     val viewModel: MainViewModel = hiltViewModel()
-    val context = LocalContext.current
-    val isVpnRunning by viewModel.isVpnRunning.observeAsState(false)
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val vpnRunning by viewModel.isVpnRunning.observeAsState(false)
     val blockedCount by viewModel.blockedCount.observeAsState(0)
 
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .padding(16.dp),
-        horizontalAlignment = Alignment.CenterHorizontally
+            .verticalScroll(rememberScrollState())
+            .padding(20.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
-        Text(
-            text = "QubeGuard",
-            style = MaterialTheme.typography.headlineMedium
-        )
+        Text("QubeGuard", style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.Bold)
+        Text("Private protection for your Android device", style = MaterialTheme.typography.bodyMedium)
 
-        Spacer(modifier = Modifier.height(16.dp))
-
-        Text(
-            text = "Blocked: $blockedCount requests",
-            style = MaterialTheme.typography.bodyMedium
-        )
-
-        Spacer(modifier = Modifier.height(32.dp))
-
-        Button(
-            onClick = {
-                if (isVpnRunning) {
-                    viewModel.stopVpn()
-                } else {
-                    viewModel.startVpn()
+        Card(modifier = Modifier.fillMaxWidth()) {
+            Column(modifier = Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(
+                    if (vpnRunning) "Protection active" else "Protection paused",
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.SemiBold
+                )
+                Text(
+                    if (vpnRunning) "VPN/DNS filtering is running. Optional AI can operate independently."
+                    else "Start protection to enable network-level filtering.",
+                    style = MaterialTheme.typography.bodyMedium
+                )
+                Button(
+                    modifier = Modifier.fillMaxWidth(),
+                    onClick = { if (vpnRunning) viewModel.stopVpn() else viewModel.startVpn() }
+                ) {
+                    Text(if (vpnRunning) "Stop protection" else "Start protection")
                 }
             }
-        ) {
-            Text(
-                text = if (isVpnRunning) "Stop VPN" else "Start VPN"
-            )
         }
 
-        Spacer(modifier = Modifier.height(16.dp))
+        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            StatCard("Blocked", blockedCount.toString(), Modifier.weight(1f))
+            StatCard("AI", "Optional", Modifier.weight(1f))
+        }
 
-        Button(
-            onClick = {
-                val intent = Intent(context, BrowserActivity::class.java)
-                context.startActivity(intent)
+        Card(modifier = Modifier.fillMaxWidth()) {
+            Column(modifier = Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text("Quick actions", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Button(onClick = { context.startActivity(Intent(context, BrowserActivity::class.java)) }) {
+                        Text("Private browser")
+                    }
+                    OutlinedButton(onClick = { context.startActivity(Intent(context, SettingsActivity::class.java)) }) {
+                        Text("Settings")
+                    }
+                }
             }
-        ) {
-            Text(
-                text = "Open Browser"
-            )
         }
 
-        Spacer(modifier = Modifier.height(16.dp))
-
-        Button(
-            onClick = {
-                val intent = Intent(context, SettingsActivity::class.java)
-                context.startActivity(intent)
+        Card(modifier = Modifier.fillMaxWidth()) {
+            Column(modifier = Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text("Protection layers", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
+                Text("Layer 1  •  Deterministic blocklists", style = MaterialTheme.typography.bodyMedium)
+                Text("Layer 2  •  Local VPN / DNS filtering", style = MaterialTheme.typography.bodyMedium)
+                Text("Layer 3  •  Optional local Transformer AI", style = MaterialTheme.typography.bodyMedium)
             }
-        ) {
-            Text(
-                text = "Settings"
-            )
         }
+
+        Spacer(Modifier.height(8.dp))
+        Text("QubeGuard • Local-first privacy", style = MaterialTheme.typography.labelMedium)
     }
 }
 
-@Preview(showBackground = true)
 @Composable
-fun MainScreenPreview() {
-    QubeGuardTheme {
-        MainScreen()
+private fun StatCard(title: String, value: String, modifier: Modifier = Modifier) {
+    Card(modifier = modifier) {
+        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text(title, style = MaterialTheme.typography.labelLarge)
+            Text(value, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+        }
     }
 }

@@ -12,7 +12,6 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.io.IOException
 import java.security.MessageDigest
-import java.time.Instant
 import java.util.concurrent.TimeUnit
 
 @HiltWorker
@@ -64,7 +63,7 @@ class BlocklistFetcherWorker @AssistedInject constructor(
             val sha256Hash = sha256(rawContent)
             if (source.sha256Hash == sha256Hash) return
 
-            val updatedAt = Instant.now().toString()
+            val updatedAt = System.currentTimeMillis().toString()
             val normalizedRules = normalizeRules(
                 rawContent = rawContent,
                 format = source.format,

@@ -8,6 +8,7 @@ import android.content.Intent
 import android.net.VpnService
 import android.os.Build
 import android.os.ParcelFileDescriptor
+import androidx.core.app.NotificationCompat
 import com.qubeguard.app.data.blocklist.DeterministicBlocker
 import com.qubeguard.app.ui.MainActivity
 import dagger.hilt.android.AndroidEntryPoint
@@ -123,7 +124,7 @@ class VpnServiceImplementation : VpnService() {
         }
         val intent = Intent(this, MainActivity::class.java)
         val pendingIntent = PendingIntent.getActivity(this, 0, intent, PendingIntent.FLAG_IMMUTABLE)
-        return Notification.Builder(this, channelId)
+        return NotificationCompat.Builder(this, channelId)
             .setContentTitle("QubeGuard VPN")
             .setContentText("Protecting your privacy")
             .setSmallIcon(android.R.drawable.ic_lock_lock)

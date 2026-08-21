@@ -23,7 +23,7 @@ class QubeManager @Inject constructor(
         isIncognito: Boolean = false
     ): String {
         val id = generateQubeId()
-        val createdAt = java.time.Instant.now().toString()
+        val createdAt = System.currentTimeMillis().toString()
 
         val qube = QubeProfile(
             id = id,
@@ -106,7 +106,7 @@ class QubeManager @Inject constructor(
     suspend fun updateLastUsed(qubeId: String) {
         val qube = qubeDao.getQubeById(qubeId)
         if (qube != null) {
-            qubeDao.updateQube(qube.copy(lastUsedAt = java.time.Instant.now().toString()))
+            qubeDao.updateQube(qube.copy(lastUsedAt = System.currentTimeMillis().toString()))
         }
     }
 
@@ -139,7 +139,7 @@ class QubeManager @Inject constructor(
                 icon = null,
                 isDefault = true,
                 isIncognito = false,
-                createdAt = java.time.Instant.now().toString(),
+                createdAt = System.currentTimeMillis().toString(),
                 lastUsedAt = null
             )
             qubeDao.insertQube(defaultQube)
@@ -152,7 +152,7 @@ class QubeManager @Inject constructor(
                 icon = null,
                 isDefault = false,
                 isIncognito = true,
-                createdAt = java.time.Instant.now().toString(),
+                createdAt = System.currentTimeMillis().toString(),
                 lastUsedAt = null
             )
             qubeDao.insertQube(incognitoQube)

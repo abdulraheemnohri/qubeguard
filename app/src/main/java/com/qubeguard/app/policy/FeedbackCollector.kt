@@ -26,7 +26,7 @@ class FeedbackCollector @Inject constructor(
             decision = decision,
             category = category,
             confidence = confidence,
-            timestamp = java.time.Instant.now().toString(),
+            timestamp = System.currentTimeMillis().toString(),
             qubeId = qubeId,
             isUploaded = false
         )

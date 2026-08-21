@@ -14,7 +14,6 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.launch
 import java.security.MessageDigest
-import java.time.Instant
 
 @HiltViewModel
 class BlockPageViewModel @Inject constructor(
@@ -62,7 +61,7 @@ class BlockPageViewModel @Inject constructor(
                 category = "custom",
                 isAllowlist = true,
                 isCompiled = false,
-                lastUpdated = Instant.now().toString()
+                lastUpdated = System.currentTimeMillis().toString()
             )
             blocklistDao.insertRule(rule)
         }

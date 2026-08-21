@@ -2,13 +2,16 @@ package com.qubeguard.app.browser
 
 import android.content.Context
 import android.util.AttributeSet
+import android.webkit.CookieManager
+import android.webkit.WebResourceRequest
+import android.webkit.WebResourceResponse
 import android.webkit.WebView
 import android.webkit.WebViewClient
-import androidx.webkit.WebViewFeature
 import com.qubeguard.app.data.blocklist.DeterministicBlocker
 import com.qubeguard.app.ml.MLClassifier
 import dagger.hilt.android.AndroidEntryPoint
 import javax.inject.Inject
+import kotlinx.coroutines.runBlocking
 
 @AndroidEntryPoint
 class SecureWebView @JvmOverloads constructor(
@@ -22,14 +25,12 @@ class SecureWebView @JvmOverloads constructor(
 
     private var qubeId: String = "default"
 
-    init { initializeWebView() }
+    init {
+        initializeWebView()
+    }
 
     private fun initializeWebView() {
         settings.javaScriptEnabled = true
-
-        if (WebViewFeature.isFeatureSupported(WebViewFeature.DISABLE_WEBGL)) {
-            settings.setWebGlEnabled(false)
-        }
         settings.setGeolocationEnabled(false)
         settings.javaScriptCanOpenWindowsAutomatically = false
         settings.domStorageEnabled = false
@@ -41,45 +42,46 @@ class SecureWebView @JvmOverloads constructor(
                 "(KHTML, like Gecko) Chrome/100.0.0.0 Mobile Safari/537.36"
 
         webViewClient = SecureWebViewClient(deterministicBlocker, mlClassifier)
-
-        if (WebViewFeature.isFeatureSupported(WebViewFeature.THIRD_PARTY_COOKIES)) {
-            android.webkit.CookieManager.getInstance().setAcceptThirdPartyCookies(this, false)
-        }
-
+        CookieManager.getInstance().setAcceptThirdPartyCookies(this, false)
         clearCache(true)
-        android.webkit.CookieManager.getInstance().removeAllCookies(null)
+        CookieManager.getInstance().removeAllCookies(null)
     }
 
-    fun setQubeId(qubeId: String) { this.qubeId = qubeId }
+    fun setQubeId(qubeId: String) {
+        this.qubeId = qubeId
+    }
+
     fun getQubeId(): String = qubeId
 
     fun clearAllData() {
         clearCache(true)
         clearHistory()
-        android.webkit.CookieManager.getInstance().removeAllCookies(null)
+        CookieManager.getInstance().removeAllCookies(null)
     }
 
-    inner class SecureWebViewClient(
+    class SecureWebViewClient(
         private val deterministicBlocker: DeterministicBlocker,
         private val mlClassifier: MLClassifier
     ) : WebViewClient() {
         override fun shouldInterceptRequest(
             view: WebView?,
-            request: android.webkit.WebResourceRequest?
-        ): android.webkit.WebResourceResponse? {
+            request: WebResourceRequest?
+        ): WebResourceResponse? {
             val url = request?.url?.toString() ?: return null
 
-            if (deterministicBlocker.isBlocked(url)) return createBlockedResponse()
+            if (runBlocking { deterministicBlocker.isBlocked(url) }) {
+                return createBlockedResponse()
+            }
 
-            // Layer 3: local Transformer inference only.
-            if (mlClassifier.isModelLoaded() && mlClassifier.isBlocked(url)) {
+            // AI is optional and is only consulted when a local model is loaded.
+            if (mlClassifier.isModelLoaded() && runBlocking { mlClassifier.isBlocked(url) }) {
                 return createBlockedResponse()
             }
 
             return null
         }
 
-        private fun createBlockedResponse(): android.webkit.WebResourceResponse =
-            android.webkit.WebResourceResponse("text/html", "UTF-8", null)
+        private fun createBlockedResponse(): WebResourceResponse =
+            WebResourceResponse("text/plain", "UTF-8", 403, "Blocked", emptyMap(), null)
     }
 }

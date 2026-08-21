@@ -2,31 +2,26 @@ package com.qubeguard.app.browser
 
 import android.content.Context
 import android.util.AttributeSet
-import android.webkit.WebSettings
+import android.webkit.CookieManager
+import android.webkit.WebResourceRequest
+import android.webkit.WebResourceResponse
 import android.webkit.WebView
 import android.webkit.WebViewClient
-import androidx.webkit.WebViewFeature
 import com.qubeguard.app.data.blocklist.DeterministicBlocker
-import com.qubeguard.app.ml.TfLiteClassifier
+import com.qubeguard.app.ml.MLClassifier
 import dagger.hilt.android.AndroidEntryPoint
 import javax.inject.Inject
+import kotlinx.coroutines.runBlocking
 
-/**
- * A hardened WebView with privacy and security protections.
- * Blocks ads, trackers, and other unwanted content.
- */
 @AndroidEntryPoint
 class SecureWebView @JvmOverloads constructor(
     context: Context,
     attrs: AttributeSet? = null,
-    defStyleAttr: Int = android.R.attr.webView
+    defStyleAttr: Int = android.R.attr.webViewStyle
 ) : WebView(context, attrs, defStyleAttr) {
 
-    @Inject
-    lateinit var deterministicBlocker: DeterministicBlocker
-
-    @Inject
-    lateinit var tfLiteClassifier: TfLiteClassifier
+    @Inject lateinit var deterministicBlocker: DeterministicBlocker
+    @Inject lateinit var mlClassifier: MLClassifier
 
     private var qubeId: String = "default"
 
@@ -34,108 +29,58 @@ class SecureWebView @JvmOverloads constructor(
         initializeWebView()
     }
 
-    /**
-     * Initializes the WebView with security and privacy settings.
-     */
     private fun initializeWebView() {
-        // Enable JavaScript (can be toggled per-site)
         settings.javaScriptEnabled = true
-
-        // Disable WebGL to prevent fingerprinting
-        if (WebViewFeature.isFeatureSupported(WebViewFeature.DISABLE_WEBGL)) {
-            settings.setWebGlEnabled(false)
-        }
-
-        // Disable geolocation
         settings.setGeolocationEnabled(false)
-
-        // Disable JavaScript popups
         settings.javaScriptCanOpenWindowsAutomatically = false
-
-        // Disable DOM storage
         settings.domStorageEnabled = false
-
-        // Disable database storage
         settings.databaseEnabled = false
-
-        // Disable save form data
         settings.saveFormData = false
-
-        // Disable text zoom
         settings.textZoom = 100
+        settings.userAgentString =
+            "Mozilla/5.0 (Linux; Android 10; Mobile) AppleWebKit/537.36 " +
+                "(KHTML, like Gecko) Chrome/100.0.0.0 Mobile Safari/537.36"
 
-        // Set user agent to a generic one
-        settings.userAgentString = "Mozilla/5.0 (Linux; Android 10; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/100.0.0.0 Mobile Safari/537.36"
-
-        // Set a custom WebViewClient for intercepting requests
-        webViewClient = SecureWebViewClient(deterministicBlocker, tfLiteClassifier)
-
-        // Disable third-party cookies
-        if (WebViewFeature.isFeatureSupported(WebViewFeature.THIRD_PARTY_COOKIES)) {
-            android.webkit.CookieManager.getInstance().setAcceptThirdPartyCookies(this, false)
-        }
-
-        // Clear cache and cookies on initialization
+        webViewClient = SecureWebViewClient(deterministicBlocker, mlClassifier)
+        CookieManager.getInstance().setAcceptThirdPartyCookies(this, false)
         clearCache(true)
-        android.webkit.CookieManager.getInstance().removeAllCookies(null)
+        CookieManager.getInstance().removeAllCookies(null)
     }
 
-    /**
-     * Sets the Qube ID for this WebView (for isolation).
-     */
     fun setQubeId(qubeId: String) {
         this.qubeId = qubeId
     }
 
-    /**
-     * Gets the Qube ID for this WebView.
-     */
-    fun getQubeId(): String {
-        return qubeId
-    }
+    fun getQubeId(): String = qubeId
 
-    /**
-     * Clears all data (cache, cookies, history) for this WebView.
-     */
     fun clearAllData() {
         clearCache(true)
         clearHistory()
-        android.webkit.CookieManager.getInstance().removeAllCookies(null)
+        CookieManager.getInstance().removeAllCookies(null)
     }
 
-    /**
-     * Custom WebViewClient for intercepting and blocking requests.
-     */
-    inner class SecureWebViewClient(
+    class SecureWebViewClient(
         private val deterministicBlocker: DeterministicBlocker,
-        private val tfLiteClassifier: TfLiteClassifier
+        private val mlClassifier: MLClassifier
     ) : WebViewClient() {
-
-        override fun shouldInterceptRequest(view: WebView?, request: android.webkit.WebResourceRequest?): android.webkit.WebResourceResponse? {
+        override fun shouldInterceptRequest(
+            view: WebView?,
+            request: WebResourceRequest?
+        ): WebResourceResponse? {
             val url = request?.url?.toString() ?: return null
 
-            // Check if the URL is blocked by the deterministic blocker (Layer 1)
-            if (deterministicBlocker.isBlocked(url)) {
+            if (runBlocking { deterministicBlocker.isBlocked(url) }) {
                 return createBlockedResponse()
             }
 
-            // Check if the URL is blocked by the ML classifier (Layer 3)
-            if (tfLiteClassifier.isBlocked(url)) {
+            if (mlClassifier.isModelLoaded() && runBlocking { mlClassifier.isBlocked(url) }) {
                 return createBlockedResponse()
             }
 
-            return null // Allow the request
+            return null
         }
 
-        /**
-         * Creates a blocked response (empty HTML page).
-         */
-        private fun createBlockedResponse(): android.webkit.WebResourceResponse {
-            return android.webkit.WebResourceResponse(
-                "text/html",
-                "UTF-8",
-                null
-            )
-        }
+        private fun createBlockedResponse(): WebResourceResponse =
+            WebResourceResponse("text/plain", "UTF-8", 403, "Blocked", emptyMap(), null)
     }
 }

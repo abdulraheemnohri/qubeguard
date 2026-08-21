@@ -17,7 +17,7 @@ import kotlinx.coroutines.runBlocking
 class SecureWebView @JvmOverloads constructor(
     context: Context,
     attrs: AttributeSet? = null,
-    defStyleAttr: Int = android.R.attr.webView
+    defStyleAttr: Int = android.R.attr.webViewStyle
 ) : WebView(context, attrs, defStyleAttr) {
 
     @Inject lateinit var deterministicBlocker: DeterministicBlocker
@@ -73,7 +73,6 @@ class SecureWebView @JvmOverloads constructor(
                 return createBlockedResponse()
             }
 
-            // AI is optional and is only consulted when a local model is loaded.
             if (mlClassifier.isModelLoaded() && runBlocking { mlClassifier.isBlocked(url) }) {
                 return createBlockedResponse()
             }

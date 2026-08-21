@@ -3,6 +3,7 @@ package com.qubeguard.app.browser
 import android.content.Context
 import android.util.AttributeSet
 import android.webkit.CookieManager
+import android.webkit.WebChromeClient
 import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
 import android.webkit.WebView
@@ -24,6 +25,13 @@ class SecureWebView @JvmOverloads constructor(
     @Inject lateinit var mlClassifier: MLClassifier
 
     private var qubeId: String = "default"
+    var onProgressChanged: ((Int) -> Unit)? = null
+    var onTitleReceived: ((String) -> Unit)? = null
+
+    companion object {
+        const val MOBILE_USER_AGENT = "Mozilla/5.0 (Linux; Android 10; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/100.0.0.0 Mobile Safari/537.36"
+        const val DESKTOP_USER_AGENT = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+    }
 
     init {
         initializeWebView()
@@ -35,16 +43,33 @@ class SecureWebView @JvmOverloads constructor(
         settings.javaScriptCanOpenWindowsAutomatically = false
         settings.domStorageEnabled = false
         settings.databaseEnabled = false
+        @Suppress("DEPRECATION")
         settings.saveFormData = false
         settings.textZoom = 100
-        settings.userAgentString =
-            "Mozilla/5.0 (Linux; Android 10; Mobile) AppleWebKit/537.36 " +
-                "(KHTML, like Gecko) Chrome/100.0.0.0 Mobile Safari/537.36"
+        settings.userAgentString = MOBILE_USER_AGENT
 
         webViewClient = SecureWebViewClient(deterministicBlocker, mlClassifier)
+        webChromeClient = object : WebChromeClient() {
+            override fun onProgressChanged(view: WebView?, newProgress: Int) {
+                super.onProgressChanged(view, newProgress)
+                onProgressChanged?.invoke(newProgress)
+            }
+
+            override fun onReceivedTitle(view: WebView?, title: String?) {
+                super.onReceivedTitle(view, title)
+                title?.let { onTitleReceived?.invoke(it) }
+            }
+        }
+
         CookieManager.getInstance().setAcceptThirdPartyCookies(this, false)
         clearCache(true)
         CookieManager.getInstance().removeAllCookies(null)
+    }
+
+    fun setDesktopMode(enabled: Boolean) {
+        settings.userAgentString = if (enabled) DESKTOP_USER_AGENT else MOBILE_USER_AGENT
+        settings.useWideViewPort = enabled
+        settings.loadWithOverviewMode = enabled
     }
 
     fun setQubeId(qubeId: String) {

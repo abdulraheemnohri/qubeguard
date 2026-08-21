@@ -7,8 +7,7 @@ import androidx.room.Query
 import androidx.room.Update
 
 /**
- * Data Access Object (DAO) for QubeProfile.
- * Provides methods to interact with the Room Database for Qube profiles.
+ * Data Access Object (DAO) for Qube profiles, bookmarks, and history.
  */
 @Dao
 interface QubeDao {
@@ -36,4 +35,24 @@ interface QubeDao {
 
     @Query("SELECT * FROM qube_profiles ORDER BY lastUsedAt DESC LIMIT 1")
     suspend fun getLastUsedQube(): QubeProfile?
+
+    // Bookmarks
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertBookmark(bookmark: BookmarkEntity)
+
+    @Query("SELECT * FROM bookmarks WHERE qubeId = :qubeId ORDER BY createdAt DESC")
+    suspend fun getBookmarksByQube(qubeId: String): List<BookmarkEntity>
+
+    @Query("DELETE FROM bookmarks WHERE id = :id")
+    suspend fun deleteBookmark(id: String)
+
+    // History
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertHistory(history: HistoryEntity)
+
+    @Query("SELECT * FROM history_entries WHERE qubeId = :qubeId ORDER BY visitedAt DESC LIMIT 100")
+    suspend fun getHistoryByQube(qubeId: String): List<HistoryEntity>
+
+    @Query("DELETE FROM history_entries WHERE qubeId = :qubeId")
+    suspend fun clearHistoryForQube(qubeId: String)
 }

@@ -19,16 +19,42 @@ fun QubeGuardNavHost(modifier: Modifier = Modifier) {
         modifier = modifier
     ) {
         composable(NavGraph.MAIN) {
-            MainScreen()
+            MainScreen(
+                onNavigateToBrowser = { navController.navigate(NavGraph.BROWSER) },
+                onNavigateToSettings = { navController.navigate(NavGraph.SETTINGS) }
+            )
         }
         composable(NavGraph.BROWSER) {
             BrowserScreen()
         }
         composable(NavGraph.SETTINGS) {
-            SettingsScreen()
+            SettingsScreen(
+                onNavigateToBlocklists = { navController.navigate(NavGraph.BLOCKLIST_SETTINGS) },
+                onNavigateToQubes = { navController.navigate(NavGraph.QUBE_MANAGEMENT) },
+                onNavigateToAi = { navController.navigate(NavGraph.ML_SETTINGS) },
+                onNavigateToFeedback = { navController.navigate(NavGraph.FEEDBACK_SETTINGS) }
+            )
         }
         composable(NavGraph.BLOCK_PAGE) {
             BlockPageScreen()
+        }
+        composable(NavGraph.QUBE_SELECTOR) {
+            QubeSelectorScreen(
+                onQubeSelected = { navController.popBackStack() },
+                onCreateNewQube = { navController.navigate(NavGraph.QUBE_MANAGEMENT) }
+            )
+        }
+        composable(NavGraph.BLOCKLIST_SETTINGS) {
+            BlocklistSettingsScreen()
+        }
+        composable(NavGraph.FEEDBACK_SETTINGS) {
+            FeedbackSettingsScreen()
+        }
+        composable(NavGraph.ML_SETTINGS) {
+            MlSettingsScreen()
+        }
+        composable(NavGraph.QUBE_MANAGEMENT) {
+            QubeManagementScreen()
         }
     }
 }

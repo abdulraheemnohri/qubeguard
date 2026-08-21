@@ -7,7 +7,8 @@ import javax.inject.Inject
  * Uses Radix Tree, Bloom Filter, and Regex Engine for efficient matching.
  */
 class RuleCompiler @Inject constructor() {
-    private val radixTree = RadixTree()
+    private val blocklistTree = RadixTree()
+    private val allowlistTree = RadixTree()
     private val bloomFilter = BloomFilter()
     private val regexEngine = RegexEngine()
 
@@ -19,29 +20,35 @@ class RuleCompiler @Inject constructor() {
         clear()
 
         for (rule in rules) {
-            when (rule.type) {
-                "domain" -> {
-                    radixTree.insert(rule.rule, rule.isAllowlist)
-                    bloomFilter.add(rule.rule)
-                }
-                "url" -> {
-                    // For URL patterns, use Radix Tree for domain part and Regex for path
-                    val domain = extractDomain(rule.rule)
-                    if (domain.isNotEmpty()) {
-                        radixTree.insert(domain, rule.isAllowlist)
-                        bloomFilter.add(domain)
+            if (rule.isAllowlist) {
+                when (rule.type) {
+                    "domain", "ip" -> allowlistTree.insert(rule.rule, true)
+                    "url" -> {
+                        val domain = extractDomain(rule.rule)
+                        if (domain.isNotEmpty()) allowlistTree.insert(domain, true)
+                        if (rule.rule.contains("*") || rule.rule.contains("^") || rule.rule.contains("||")) {
+                            regexEngine.addPattern(convertGlobToRegex(rule.rule), isBlocked = false)
+                        }
                     }
-                    if (rule.rule.contains("*") || rule.rule.contains("^")) {
-                        regexEngine.addPattern(rule.rule, !rule.isAllowlist)
+                    "regex" -> regexEngine.addPattern(rule.rule, isBlocked = false)
+                }
+            } else {
+                when (rule.type) {
+                    "domain", "ip" -> {
+                        blocklistTree.insert(rule.rule, true)
+                        bloomFilter.add(rule.rule)
                     }
-                }
-                "regex" -> {
-                    regexEngine.addPattern(rule.rule, !rule.isAllowlist)
-                }
-                "ip" -> {
-                    // For IP-based rules, use Radix Tree or Regex
-                    radixTree.insert(rule.rule, rule.isAllowlist)
-                    bloomFilter.add(rule.rule)
+                    "url" -> {
+                        val domain = extractDomain(rule.rule)
+                        if (domain.isNotEmpty()) {
+                            blocklistTree.insert(domain, true)
+                            bloomFilter.add(domain)
+                        }
+                        if (rule.rule.contains("*") || rule.rule.contains("^") || rule.rule.contains("||")) {
+                            regexEngine.addPattern(convertGlobToRegex(rule.rule), isBlocked = true)
+                        }
+                    }
+                    "regex" -> regexEngine.addPattern(rule.rule, isBlocked = true)
                 }
             }
         }
@@ -55,17 +62,14 @@ class RuleCompiler @Inject constructor() {
     fun isBlocked(input: String): Boolean {
         val domain = extractDomain(input)
 
-        // First, check Bloom Filter for fast negative lookup
         if (!bloomFilter.mightContain(domain)) {
             return false
         }
 
-        // Check Radix Tree for domain/subdomain matching
-        if (radixTree.isBlockedOrSubdomainBlocked(domain)) {
+        if (blocklistTree.isBlocked(domain)) {
             return true
         }
 
-        // Check Regex Engine for complex patterns
         if (regexEngine.isBlocked(input)) {
             return true
         }
@@ -81,12 +85,10 @@ class RuleCompiler @Inject constructor() {
     fun isAllowed(input: String): Boolean {
         val domain = extractDomain(input)
 
-        // Check Radix Tree for allowlist
-        if (radixTree.isBlocked(domain)) {
+        if (allowlistTree.isBlocked(domain)) {
             return true
         }
 
-        // Check Regex Engine for allowlist patterns
         if (regexEngine.isAllowed(input)) {
             return true
         }
@@ -98,9 +100,41 @@ class RuleCompiler @Inject constructor() {
      * Clears all compiled rules.
      */
     fun clear() {
-        radixTree.clear()
+        blocklistTree.clear()
+        allowlistTree.clear()
         bloomFilter.clear()
         regexEngine.clear()
+    }
+
+    private fun convertGlobToRegex(pattern: String): String {
+        if (pattern.isBlank()) return ".*"
+        var p = pattern.trim()
+        var prefix = ""
+        if (p.startsWith("||")) {
+            prefix = "^https?://(?:[a-zA-Z0-9\\-]+\\.)*"
+            p = p.substring(2)
+        } else if (p.startsWith("|")) {
+            prefix = "^"
+            p = p.substring(1)
+        }
+
+        var suffix = ""
+        if (p.endsWith("|")) {
+            suffix = "$"
+            p = p.dropLast(1)
+        }
+
+        val sb = StringBuilder(prefix)
+        for (ch in p) {
+            when (ch) {
+                '*' -> sb.append(".*")
+                '^' -> sb.append("(?:[^a-zA-Z0-9\\._\\-%]|$)")
+                '.', '?', '+', '(', ')', '[', ']', '{', '}', '\\', '$' -> sb.append('\\').append(ch)
+                else -> sb.append(ch)
+            }
+        }
+        sb.append(suffix)
+        return sb.toString()
     }
 
     /**
@@ -111,18 +145,15 @@ class RuleCompiler @Inject constructor() {
     private fun extractDomain(input: String): String {
         val normalizedInput = input.lowercase().trim()
 
-        // Remove protocol (http://, https://)
         var domain = normalizedInput
             .replace("http://".toRegex(), "")
             .replace("https://".toRegex(), "")
 
-        // Remove path and query parameters
         val slashIndex = domain.indexOf('/')
         if (slashIndex != -1) {
             domain = domain.substring(0, slashIndex)
         }
 
-        // Remove port number
         val colonIndex = domain.indexOf(':')
         if (colonIndex != -1) {
             domain = domain.substring(0, colonIndex)

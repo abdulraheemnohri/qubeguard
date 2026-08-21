@@ -5,18 +5,23 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.LiveData
 import androidx.lifecycle.MutableLiveData
 import androidx.lifecycle.viewModelScope
+import com.qubeguard.app.data.blocklist.BlocklistDao
+import com.qubeguard.app.data.blocklist.BlocklistRule
 import com.qubeguard.app.engine.BlockingEngine
 import com.qubeguard.app.policy.FeedbackCollector
 import com.qubeguard.app.policy.UserFeedback
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.launch
+import java.security.MessageDigest
+import java.time.Instant
 
 @HiltViewModel
 class BlockPageViewModel @Inject constructor(
     application: Application,
     private val blockingEngine: BlockingEngine,
-    private val feedbackCollector: FeedbackCollector
+    private val feedbackCollector: FeedbackCollector,
+    private val blocklistDao: BlocklistDao
 ) : AndroidViewModel(application) {
     private val _blockedUrl = MutableLiveData("")
     val blockedUrl: LiveData<String> = _blockedUrl
@@ -37,14 +42,49 @@ class BlockPageViewModel @Inject constructor(
         }
     }
 
-    fun allowOnce() = Unit
+    fun allowOnce() {
+        val url = _blockedUrl.value ?: return
+        viewModelScope.launch {
+            feedbackCollector.logFeedback(url, "allow_once")
+        }
+    }
+
     fun allowAlways() {
         val url = _blockedUrl.value ?: return
-        viewModelScope.launch { feedbackCollector.logFeedback(url, UserFeedback.ALLOW_ALWAYS) }
+        viewModelScope.launch {
+            feedbackCollector.logFeedback(url, UserFeedback.ALLOW_ALWAYS)
+            val ruleId = "user_allow_" + sha256(url).substring(0, 12)
+            val rule = BlocklistRule(
+                id = ruleId,
+                sourceId = "custom_allowlist",
+                rule = url,
+                type = "domain",
+                category = "custom",
+                isAllowlist = true,
+                isCompiled = false,
+                lastUpdated = Instant.now().toString()
+            )
+            blocklistDao.insertRule(rule)
+        }
     }
-    fun keepBlocked() = Unit
+
+    fun keepBlocked() {
+        val url = _blockedUrl.value ?: return
+        viewModelScope.launch {
+            feedbackCollector.logFeedback(url, "keep_blocked")
+        }
+    }
+
     fun reportFalsePositive() {
         val url = _blockedUrl.value ?: return
-        viewModelScope.launch { feedbackCollector.logFeedback(url, UserFeedback.REPORT_FALSE_POSITIVE) }
+        viewModelScope.launch {
+            feedbackCollector.logFeedback(url, UserFeedback.REPORT_FALSE_POSITIVE)
+        }
+    }
+
+    private fun sha256(input: String): String {
+        val digest = MessageDigest.getInstance("SHA-256")
+            .digest(input.toByteArray(Charsets.UTF_8))
+        return digest.joinToString("") { "%02x".format(it) }
     }
 }

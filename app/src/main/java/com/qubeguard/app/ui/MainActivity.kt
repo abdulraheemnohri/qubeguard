@@ -18,12 +18,12 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.livedata.observeAsState
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -39,9 +39,12 @@ class MainActivity : ComponentActivity() {
 }
 
 @Composable
-fun MainScreen() {
+fun MainScreen(
+    onNavigateToBrowser: (() -> Unit)? = null,
+    onNavigateToSettings: (() -> Unit)? = null
+) {
     val viewModel: MainViewModel = hiltViewModel()
-    val context = androidx.compose.ui.platform.LocalContext.current
+    val context = LocalContext.current
     val vpnRunning by viewModel.isVpnRunning.observeAsState(false)
     val blockedCount by viewModel.blockedCount.observeAsState(0)
 
@@ -85,10 +88,16 @@ fun MainScreen() {
             Column(modifier = Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Text("Quick actions", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Button(onClick = { context.startActivity(Intent(context, BrowserActivity::class.java)) }) {
+                    Button(onClick = {
+                        if (onNavigateToBrowser != null) onNavigateToBrowser()
+                        else context.startActivity(Intent(context, BrowserActivity::class.java))
+                    }) {
                         Text("Private browser")
                     }
-                    OutlinedButton(onClick = { context.startActivity(Intent(context, SettingsActivity::class.java)) }) {
+                    OutlinedButton(onClick = {
+                        if (onNavigateToSettings != null) onNavigateToSettings()
+                        else context.startActivity(Intent(context, SettingsActivity::class.java))
+                    }) {
                         Text("Settings")
                     }
                 }

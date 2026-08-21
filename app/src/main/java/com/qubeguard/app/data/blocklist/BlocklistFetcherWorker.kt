@@ -124,11 +124,13 @@ class BlocklistFetcherWorker @AssistedInject constructor(
 
         if (rulePattern.isBlank()) return null
 
+        val isUrlPattern = rulePattern.contains('*') || rulePattern.contains('^') || rulePattern.contains('/')
+
         return BlocklistRule(
             id = sha256(cleanRule),
             sourceId = sourceId,
             rule = rulePattern,
-            type = if (rulePattern.contains('*') || rulePattern.contains('^')) "url" else "domain",
+            type = if (isUrlPattern) "url" else "domain",
             category = category,
             isAllowlist = isAllowlist,
             isCompiled = false,

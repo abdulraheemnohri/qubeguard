@@ -12,6 +12,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.livedata.observeAsState
 import androidx.compose.ui.Modifier
@@ -27,6 +28,12 @@ import com.qubeguard.app.ui.theme.QubeGuardTheme
 fun FeedbackSettingsScreen() {
     val viewModel: SettingsViewModel = hiltViewModel()
     val isTelemetryEnabled by viewModel.isTelemetryEnabled.observeAsState(false)
+    val falsePositiveCount by viewModel.falsePositiveCount.observeAsState(0)
+    val allowAlwaysCount by viewModel.allowAlwaysCount.observeAsState(0)
+
+    LaunchedEffect(Unit) {
+        viewModel.loadFeedbackStats()
+    }
 
     Column(
         modifier = Modifier
@@ -66,7 +73,7 @@ fun FeedbackSettingsScreen() {
         Spacer(modifier = Modifier.height(8.dp))
 
         Text(
-            text = "Telemetry helps us improve the ML model by collecting anonymous data about false positives and negatives.",
+            text = "Telemetry helps us improve model precision by collecting anonymous feedback on false positives and negatives.",
             style = MaterialTheme.typography.bodySmall
         )
 
@@ -80,14 +87,13 @@ fun FeedbackSettingsScreen() {
 
         Spacer(modifier = Modifier.height(8.dp))
 
-        // Placeholder for feedback stats
         Text(
-            text = "False Positives Reported: 0",
+            text = "False Positives Reported: $falsePositiveCount",
             style = MaterialTheme.typography.bodyMedium
         )
 
         Text(
-            text = "Allow Always Decisions: 0",
+            text = "Allow Always Decisions: $allowAlwaysCount",
             style = MaterialTheme.typography.bodyMedium
         )
     }

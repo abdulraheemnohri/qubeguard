@@ -7,6 +7,7 @@ import android.app.PendingIntent
 import android.content.Intent
 import android.net.VpnService
 import android.os.Build
+import android.os.ParcelFileDescriptor
 import com.qubeguard.app.data.blocklist.DeterministicBlocker
 import com.qubeguard.app.ui.MainActivity
 import dagger.hilt.android.AndroidEntryPoint
@@ -23,6 +24,7 @@ class VpnServiceImplementation : VpnService() {
     @Inject lateinit var deterministicBlocker: DeterministicBlocker
     private lateinit var vpnThread: Thread
     @Volatile private var isRunning = false
+    private var vpnInterface: ParcelFileDescriptor? = null
     private lateinit var datagramChannel: DatagramChannel
     private val scope = CoroutineScope(Dispatchers.IO)
     private val dnsProxyPort = 5353
@@ -42,7 +44,7 @@ class VpnServiceImplementation : VpnService() {
     private fun startVpn() {
         if (isRunning) return
         startForeground(NOTIFICATION_ID, createNotification())
-        Builder()
+        vpnInterface = Builder()
             .setSession("QubeGuard VPN")
             .addAddress("10.0.0.2", 24)
             .addDnsServer("10.0.0.2")
@@ -66,6 +68,8 @@ class VpnServiceImplementation : VpnService() {
     private fun stopVpn() {
         isRunning = false
         if (::datagramChannel.isInitialized) runCatching { datagramChannel.close() }
+        runCatching { vpnInterface?.close() }
+        vpnInterface = null
         if (::vpnThread.isInitialized) runCatching { vpnThread.join(1000) }
     }
 
@@ -83,7 +87,9 @@ class VpnServiceImplementation : VpnService() {
                     } else {
                         forwardQuery(queryBytes)
                     }
-                    datagramChannel.send(ByteBuffer.wrap(response), clientAddress)
+                    if (response.isNotEmpty()) {
+                        datagramChannel.send(ByteBuffer.wrap(response), clientAddress)
+                    }
                 }
             } catch (_: Exception) {
                 if (!isRunning) break
@@ -92,14 +98,19 @@ class VpnServiceImplementation : VpnService() {
     }
 
     private fun forwardQuery(query: ByteArray): ByteArray {
-        DatagramChannel.open().use { upstream ->
-            val address = InetSocketAddress(upstreamDnsServer, upstreamDnsPort)
-            upstream.configureBlocking(true)
-            upstream.send(ByteBuffer.wrap(query), address)
-            val response = ByteBuffer.allocate(4096)
-            upstream.receive(response)
-            response.flip()
-            return ByteArray(response.remaining()).also { response.get(it) }
+        return try {
+            DatagramChannel.open().use { upstream ->
+                val address = InetSocketAddress(upstreamDnsServer, upstreamDnsPort)
+                upstream.configureBlocking(true)
+                upstream.socket().soTimeout = 3000
+                upstream.send(ByteBuffer.wrap(query), address)
+                val response = ByteBuffer.allocate(4096)
+                upstream.receive(response)
+                response.flip()
+                ByteArray(response.remaining()).also { response.get(it) }
+            }
+        } catch (_: Exception) {
+            ByteArray(0)
         }
     }
 
@@ -123,14 +134,14 @@ class VpnServiceImplementation : VpnService() {
     private data class DnsRequest(val id: Int, val domain: String) {
         companion object {
             fun parse(buffer: ByteBuffer): DnsRequest {
-                require(buffer.remaining() >= 12)
+                require(buffer.remaining() >= 12) { "DNS header too short" }
                 val id = buffer.short.toInt() and 0xFFFF
                 buffer.position(12)
                 val labels = mutableListOf<String>()
                 while (buffer.hasRemaining()) {
                     val length = buffer.get().toInt() and 0xFF
                     if (length == 0) break
-                    require(length <= 63 && length <= buffer.remaining())
+                    require(length <= 63 && length <= buffer.remaining()) { "Invalid label length" }
                     val bytes = ByteArray(length)
                     buffer.get(bytes)
                     labels += String(bytes, Charsets.UTF_8)
@@ -143,10 +154,13 @@ class VpnServiceImplementation : VpnService() {
     private object DnsResponse {
         fun createNxDomainResponse(request: DnsRequest, query: ByteArray): ByteArray {
             val response = query.copyOf()
+            // Transaction ID
             response[0] = (request.id ushr 8).toByte()
             response[1] = request.id.toByte()
-            response[2] = (response[2].toInt() or 0x80).toByte()
-            response[3] = ((response[3].toInt() and 0xF0) or 0x03).toByte()
+            // Flags: QR=1 (response), Opcode=0, AA=1, TC=0, RD=1 -> 0x85
+            response[2] = 0x85.toByte()
+            // Flags: RA=1, Z=0, RCODE=3 (NXDomain) -> 0x83
+            response[3] = 0x83.toByte()
             return response
         }
     }

@@ -11,6 +11,7 @@ import com.qubeguard.app.data.blocklist.BlocklistDao
 import com.qubeguard.app.data.blocklist.BlocklistSource
 import com.qubeguard.app.ml.MLClassifier
 import com.qubeguard.app.ml.ModelDownloader
+import com.qubeguard.app.policy.FeedbackCollector
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.launch
 import javax.inject.Inject
@@ -21,7 +22,8 @@ class SettingsViewModel @Inject constructor(
     private val blocklistDao: BlocklistDao,
     private val qubeManager: QubeManager,
     private val mlClassifier: MLClassifier,
-    private val modelDownloader: ModelDownloader
+    private val modelDownloader: ModelDownloader,
+    private val feedbackCollector: FeedbackCollector
 ) : AndroidViewModel(application) {
     private val preferences = application.getSharedPreferences(PREFERENCES, Application.MODE_PRIVATE)
     private val _blocklistSources = MutableLiveData<List<BlocklistSource>>(emptyList())
@@ -35,9 +37,25 @@ class SettingsViewModel @Inject constructor(
     private val _isTelemetryEnabled = MutableLiveData(preferences.getBoolean(KEY_TELEMETRY, false))
     val isTelemetryEnabled: LiveData<Boolean> = _isTelemetryEnabled
 
-    init { loadBlocklistSources(); loadQubeProfiles() }
+    private val _falsePositiveCount = MutableLiveData(0)
+    val falsePositiveCount: LiveData<Int> = _falsePositiveCount
+    private val _allowAlwaysCount = MutableLiveData(0)
+    val allowAlwaysCount: LiveData<Int> = _allowAlwaysCount
+
+    init {
+        loadBlocklistSources()
+        loadQubeProfiles()
+        loadFeedbackStats()
+    }
+
     private fun loadBlocklistSources() { viewModelScope.launch { _blocklistSources.value = blocklistDao.getAllSources() } }
     private fun loadQubeProfiles() { viewModelScope.launch { _qubeProfiles.value = qubeManager.getAllQubes() } }
+    fun loadFeedbackStats() {
+        viewModelScope.launch {
+            _falsePositiveCount.value = feedbackCollector.getFalsePositiveCount()
+            _allowAlwaysCount.value = feedbackCollector.getAllowAlwaysCount()
+        }
+    }
 
     fun setBlocklistSourceEnabled(sourceId: String, enabled: Boolean) {
         viewModelScope.launch {

@@ -16,10 +16,10 @@ class RegexEngine {
      */
     fun addPattern(pattern: String, isBlocked: Boolean) {
         try {
-            val compiledPattern = Pattern.compile(pattern)
+            val compiledPattern = Pattern.compile(pattern, Pattern.CASE_INSENSITIVE)
             patterns.add(PatternEntry(compiledPattern, isBlocked))
-        } catch (e: Exception) {
-            // Log invalid regex pattern
+        } catch (_: Exception) {
+            // Log or ignore invalid regex pattern
         }
     }
 
@@ -30,10 +30,8 @@ class RegexEngine {
      */
     fun isBlocked(url: String): Boolean {
         for (entry in patterns) {
-            if (entry.pattern.matcher(url).matches()) {
-                if (entry.isBlocked) {
-                    return true
-                }
+            if (entry.isBlocked && entry.pattern.matcher(url).find()) {
+                return true
             }
         }
         return false
@@ -46,10 +44,8 @@ class RegexEngine {
      */
     fun isAllowed(url: String): Boolean {
         for (entry in patterns) {
-            if (entry.pattern.matcher(url).matches()) {
-                if (!entry.isBlocked) {
-                    return true
-                }
+            if (!entry.isBlocked && entry.pattern.matcher(url).find()) {
+                return true
             }
         }
         return false
@@ -62,9 +58,6 @@ class RegexEngine {
         patterns.clear()
     }
 
-    /**
-     * Represents a compiled regex pattern with its block/allow status.
-     */
     private data class PatternEntry(
         val pattern: Pattern,
         val isBlocked: Boolean

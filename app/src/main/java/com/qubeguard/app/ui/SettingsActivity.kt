@@ -45,7 +45,12 @@ class SettingsActivity : ComponentActivity() {
 }
 
 @Composable
-fun SettingsScreen() {
+fun SettingsScreen(
+    onNavigateToBlocklists: (() -> Unit)? = null,
+    onNavigateToQubes: (() -> Unit)? = null,
+    onNavigateToAi: (() -> Unit)? = null,
+    onNavigateToFeedback: (() -> Unit)? = null
+) {
     val viewModel: SettingsViewModel = hiltViewModel()
     val aiEnabled by viewModel.isMlEnabled.observeAsState(false)
     val autoUpdate by viewModel.isAutoModelUpdateEnabled.observeAsState(false)
@@ -86,18 +91,24 @@ fun SettingsScreen() {
                 Button(onClick = { viewModel.updateModel() }, enabled = aiEnabled) { Text("Update") }
                 Button(onClick = { viewModel.deleteLocalModel() }) { Text("Clear") }
             }
+            if (onNavigateToAi != null) {
+                Spacer(Modifier.height(4.dp))
+                Button(onClick = onNavigateToAi) { Text("Detailed AI Settings") }
+            }
         }
 
         SettingsCard("Blocklists") {
             Text("Deterministic blocking remains the primary ad, tracker and domain protection layer.", style = MaterialTheme.typography.bodyMedium)
-            Button(onClick = { }) { Text("Manage blocklists") }
+            Button(onClick = { onNavigateToBlocklists?.invoke() }) { Text("Manage blocklists") }
         }
 
         SettingsCard("Browser & Qubes") {
             Text("Per-Qube profiles, browser privacy controls and disposable sessions are managed independently from the AI layer.", style = MaterialTheme.typography.bodyMedium)
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Button(onClick = { }) { Text("Qubes") }
-                Button(onClick = { }) { Text("Browser") }
+                Button(onClick = { onNavigateToQubes?.invoke() }) { Text("Qubes") }
+                if (onNavigateToFeedback != null) {
+                    Button(onClick = onNavigateToFeedback) { Text("Feedback") }
+                }
             }
         }
 

@@ -49,10 +49,11 @@ class QubeGuardApp : Application(), Configuration.Provider {
             if (missing.isNotEmpty()) {
                 blocklistDao.insertSources(missing)
             }
+            enqueueInitialBlocklistFetch()
         }
     }
 
-    private fun scheduleBlocklistUpdates() {
+    private fun enqueueInitialBlocklistFetch() {
         val constraints = Constraints.Builder()
             .setRequiredNetworkType(NetworkType.CONNECTED)
             .build()
@@ -66,6 +67,12 @@ class QubeGuardApp : Application(), Configuration.Provider {
             ExistingWorkPolicy.KEEP,
             initial
         )
+    }
+
+    private fun scheduleBlocklistUpdates() {
+        val constraints = Constraints.Builder()
+            .setRequiredNetworkType(NetworkType.CONNECTED)
+            .build()
 
         val periodic = PeriodicWorkRequestBuilder<BlocklistFetcherWorker>(24, TimeUnit.HOURS)
             .setConstraints(constraints)

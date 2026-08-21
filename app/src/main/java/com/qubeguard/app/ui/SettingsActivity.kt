@@ -4,6 +4,7 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -15,14 +16,20 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.livedata.observeAsState
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
@@ -47,13 +54,25 @@ class SettingsActivity : ComponentActivity() {
 @Composable
 fun SettingsScreen(
     onNavigateToBlocklists: (() -> Unit)? = null,
+    onNavigateToAllowlist: (() -> Unit)? = null,
     onNavigateToQubes: (() -> Unit)? = null,
     onNavigateToAi: (() -> Unit)? = null,
-    onNavigateToFeedback: (() -> Unit)? = null
+    onNavigateToFeedback: (() -> Unit)? = null,
+    onNavigateToDnsLogs: (() -> Unit)? = null
 ) {
     val viewModel: SettingsViewModel = hiltViewModel()
     val aiEnabled by viewModel.isMlEnabled.observeAsState(false)
     val autoUpdate by viewModel.isAutoModelUpdateEnabled.observeAsState(false)
+    val upstreamDns by viewModel.upstreamDns.observeAsState("1.1.1.1")
+
+    var showDnsMenu by remember { mutableStateOf(false) }
+
+    val dnsProviders = mapOf(
+        "1.1.1.1" to "Cloudflare (1.1.1.1)",
+        "94.140.14.14" to "AdGuard DNS (94.140.14.14)",
+        "9.9.9.9" to "Quad9 (9.9.9.9)",
+        "8.8.8.8" to "Google DNS (8.8.8.8)"
+    )
 
     Column(
         modifier = Modifier
@@ -63,7 +82,7 @@ fun SettingsScreen(
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         Text("Settings", style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.Bold)
-        Text("Privacy controls, protection layers and local AI", style = MaterialTheme.typography.bodyMedium)
+        Text("Privacy controls, network DNS, and local protection", style = MaterialTheme.typography.bodyMedium)
 
         SettingsCard("Protection") {
             SettingSwitch("AI malicious-URL protection", "Optional local Transformer; protection continues without it.", aiEnabled) {
@@ -72,6 +91,40 @@ fun SettingsScreen(
             HorizontalDivider()
             SettingSwitch("Automatic AI model updates", "Unmetered network only. Disabled until you opt in to AI.", autoUpdate, enabled = aiEnabled) {
                 viewModel.setAutoModelUpdateEnabled(it)
+            }
+        }
+
+        SettingsCard("Network & Upstream DNS") {
+            Text("Selected Upstream DNS", style = MaterialTheme.typography.labelLarge)
+            Box {
+                OutlinedButton(onClick = { showDnsMenu = true }) {
+                    Text(dnsProviders[upstreamDns] ?: upstreamDns)
+                }
+                DropdownMenu(expanded = showDnsMenu, onDismissRequest = { showDnsMenu = false }) {
+                    dnsProviders.forEach { (ip, label) ->
+                        DropdownMenuItem(
+                            text = { Text(label) },
+                            onClick = {
+                                viewModel.setUpstreamDns(ip)
+                                showDnsMenu = false
+                            }
+                        )
+                    }
+                }
+            }
+            if (onNavigateToDnsLogs != null) {
+                Spacer(Modifier.height(4.dp))
+                Button(onClick = onNavigateToDnsLogs) { Text("View DNS Network Logs") }
+            }
+        }
+
+        SettingsCard("Blocklists & Allowlist") {
+            Text("Manage deterministic blocking sources and custom allowed domains.", style = MaterialTheme.typography.bodyMedium)
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Button(onClick = { onNavigateToBlocklists?.invoke() }) { Text("Blocklists") }
+                if (onNavigateToAllowlist != null) {
+                    OutlinedButton(onClick = onNavigateToAllowlist) { Text("Allowlist") }
+                }
             }
         }
 
@@ -97,11 +150,6 @@ fun SettingsScreen(
             }
         }
 
-        SettingsCard("Blocklists") {
-            Text("Deterministic blocking remains the primary ad, tracker and domain protection layer.", style = MaterialTheme.typography.bodyMedium)
-            Button(onClick = { onNavigateToBlocklists?.invoke() }) { Text("Manage blocklists") }
-        }
-
         SettingsCard("Browser & Qubes") {
             Text("Per-Qube profiles, browser privacy controls and disposable sessions are managed independently from the AI layer.", style = MaterialTheme.typography.bodyMedium)
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -110,11 +158,6 @@ fun SettingsScreen(
                     Button(onClick = onNavigateToFeedback) { Text("Feedback") }
                 }
             }
-        }
-
-        SettingsCard("Privacy") {
-            Text("No remote AI inference is used. AI classification runs locally when enabled.", style = MaterialTheme.typography.bodyMedium)
-            Text("No Hugging Face API token is required.", style = MaterialTheme.typography.bodySmall)
         }
     }
 }

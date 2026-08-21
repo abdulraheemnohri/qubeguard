@@ -15,6 +15,7 @@ import com.qubeguard.app.browser.QubeProfile
 import com.qubeguard.app.data.blocklist.BlocklistDao
 import com.qubeguard.app.data.blocklist.BlocklistFetcherWorker
 import com.qubeguard.app.data.blocklist.BlocklistSource
+import com.qubeguard.app.data.blocklist.DnsLogEntity
 import com.qubeguard.app.ml.MLClassifier
 import com.qubeguard.app.ml.ModelDownloader
 import com.qubeguard.app.policy.FeedbackCollector
@@ -44,6 +45,9 @@ class SettingsViewModel @Inject constructor(
     private val _isTelemetryEnabled = MutableLiveData(preferences.getBoolean(KEY_TELEMETRY, false))
     val isTelemetryEnabled: LiveData<Boolean> = _isTelemetryEnabled
 
+    private val _upstreamDns = MutableLiveData(preferences.getString(KEY_UPSTREAM_DNS, "1.1.1.1") ?: "1.1.1.1")
+    val upstreamDns: LiveData<String> = _upstreamDns
+
     private val _falsePositiveCount = MutableLiveData(0)
     val falsePositiveCount: LiveData<Int> = _falsePositiveCount
     private val _allowAlwaysCount = MutableLiveData(0)
@@ -51,11 +55,15 @@ class SettingsViewModel @Inject constructor(
     private val _totalRuleCount = MutableLiveData(0)
     val totalRuleCount: LiveData<Int> = _totalRuleCount
 
+    private val _dnsLogs = MutableLiveData<List<DnsLogEntity>>(emptyList())
+    val dnsLogs: LiveData<List<DnsLogEntity>> = _dnsLogs
+
     init {
         loadBlocklistSources()
         loadQubeProfiles()
         loadFeedbackStats()
         loadTotalRuleCount()
+        loadDnsLogs()
     }
 
     fun loadBlocklistSources() { viewModelScope.launch { _blocklistSources.value = blocklistDao.getAllSources() } }
@@ -70,6 +78,24 @@ class SettingsViewModel @Inject constructor(
         viewModelScope.launch {
             _totalRuleCount.value = blocklistDao.getTotalRuleCount()
         }
+    }
+
+    fun loadDnsLogs() {
+        viewModelScope.launch {
+            _dnsLogs.value = blocklistDao.getRecentDnsLogs()
+        }
+    }
+
+    fun clearDnsLogs() {
+        viewModelScope.launch {
+            blocklistDao.clearDnsLogs()
+            _dnsLogs.value = emptyList()
+        }
+    }
+
+    fun setUpstreamDns(dnsIp: String) {
+        preferences.edit().putString(KEY_UPSTREAM_DNS, dnsIp).apply()
+        _upstreamDns.value = dnsIp
     }
 
     fun setBlocklistSourceEnabled(sourceId: String, enabled: Boolean) {
@@ -174,5 +200,6 @@ class SettingsViewModel @Inject constructor(
         private const val KEY_AI_ENABLED = "ai_enabled"
         private const val KEY_AUTO_UPDATE = "ai_auto_update"
         private const val KEY_TELEMETRY = "telemetry_enabled"
+        const val KEY_UPSTREAM_DNS = "upstream_dns_ip"
     }
 }

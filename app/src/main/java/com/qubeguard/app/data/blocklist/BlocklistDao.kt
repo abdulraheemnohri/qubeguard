@@ -77,4 +77,14 @@ interface BlocklistDao {
         LIMIT 1
     """)
     suspend fun getMatchingAllowlistRule(domain: String): BlocklistRule?
+
+    // DNS Query Logging
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertDnsLog(log: DnsLogEntity)
+
+    @Query("SELECT * FROM dns_logs ORDER BY timestamp DESC LIMIT :limit")
+    suspend fun getRecentDnsLogs(limit: Int = 100): List<DnsLogEntity>
+
+    @Query("DELETE FROM dns_logs")
+    suspend fun clearDnsLogs()
 }

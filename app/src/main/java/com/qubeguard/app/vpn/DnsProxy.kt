@@ -1,15 +1,22 @@
 package com.qubeguard.app.vpn
 
+import android.content.Context
+import com.qubeguard.app.data.blocklist.BlocklistDao
 import com.qubeguard.app.data.blocklist.DeterministicBlocker
+import com.qubeguard.app.data.blocklist.DnsLogEntity
+import dagger.hilt.android.qualifiers.ApplicationContext
 import java.net.DatagramPacket
 import java.net.DatagramSocket
 import java.net.InetAddress
+import java.util.UUID
 import javax.inject.Inject
 import kotlinx.coroutines.runBlocking
 
 /** Lightweight DNS proxy used by the VPN layer. */
 class DnsProxy @Inject constructor(
-    private val deterministicBlocker: DeterministicBlocker
+    @ApplicationContext private val context: Context,
+    private val deterministicBlocker: DeterministicBlocker,
+    private val blocklistDao: BlocklistDao
 ) {
     private var socket: DatagramSocket? = null
     @Volatile private var isRunning = false
@@ -28,6 +35,19 @@ class DnsProxy @Inject constructor(
                         socket?.receive(packet)
                         val request = DnsRequest.parse(packet.data, packet.length)
                         val blocked = runBlocking { deterministicBlocker.isBlocked(request.domain) }
+
+                        runBlocking {
+                            blocklistDao.insertDnsLog(
+                                DnsLogEntity(
+                                    id = UUID.randomUUID().toString(),
+                                    domain = request.domain,
+                                    isBlocked = blocked,
+                                    reason = if (blocked) "Deterministic Blocklist" else "Allowed",
+                                    timestamp = System.currentTimeMillis().toString()
+                                )
+                            )
+                        }
+
                         if (blocked) {
                             val response = DnsResponse.createNxDomainResponse(request, buffer, packet.length)
                             socket?.send(DatagramPacket(response, response.size, packet.address, packet.port))
@@ -44,11 +64,16 @@ class DnsProxy @Inject constructor(
         }
     }
 
+    private fun getUpstreamDnsServer(): String {
+        val prefs = context.getSharedPreferences("qubeguard_settings", Context.MODE_PRIVATE)
+        return prefs.getString("upstream_dns_ip", "1.1.1.1") ?: "1.1.1.1"
+    }
+
     private fun forward(packet: DatagramPacket) {
         val upstream = DatagramSocket()
         try {
             upstream.soTimeout = 5000
-            val address = InetAddress.getByName("1.1.1.1")
+            val address = InetAddress.getByName(getUpstreamDnsServer())
             upstream.send(DatagramPacket(packet.data, packet.length, address, 53))
             val responseBuffer = ByteArray(4096)
             val response = DatagramPacket(responseBuffer, responseBuffer.size)
@@ -90,12 +115,9 @@ class DnsProxy @Inject constructor(
     object DnsResponse {
         fun createNxDomainResponse(request: DnsRequest, query: ByteArray, queryLength: Int): ByteArray {
             val response = query.copyOf(queryLength)
-            // Transaction ID
             response[0] = (request.id ushr 8).toByte()
             response[1] = request.id.toByte()
-            // Flags: QR=1 (response), Opcode=0, AA=1, TC=0, RD=1 -> 0x85
             response[2] = 0x85.toByte()
-            // Flags: RA=1, Z=0, RCODE=3 (NXDomain) -> 0x83
             response[3] = 0x83.toByte()
             return response
         }

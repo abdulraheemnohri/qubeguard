@@ -41,6 +41,12 @@ interface BlocklistDao {
     @Query("SELECT * FROM blocklist_rules WHERE sourceId = :sourceId")
     suspend fun getRulesBySource(sourceId: String): List<BlocklistRule>
 
+    @Query("SELECT COUNT(*) FROM blocklist_rules WHERE sourceId = :sourceId")
+    suspend fun getRuleCountBySource(sourceId: String): Int
+
+    @Query("SELECT COUNT(*) FROM blocklist_rules")
+    suspend fun getTotalRuleCount(): Int
+
     @Query("SELECT * FROM blocklist_rules WHERE isAllowlist = 0")
     suspend fun getAllBlocklistRules(): List<BlocklistRule>
 

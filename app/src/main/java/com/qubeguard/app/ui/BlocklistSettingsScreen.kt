@@ -1,5 +1,6 @@
 package com.qubeguard.app.ui
 
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -10,11 +11,21 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material3.Button
+import androidx.compose.material3.Card
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Switch
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.livedata.observeAsState
 import androidx.compose.runtime.mutableStateOf
@@ -22,6 +33,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -29,41 +41,108 @@ import com.qubeguard.app.data.blocklist.BlocklistSource
 import com.qubeguard.app.ui.theme.QubeGuardTheme
 
 /**
- * Blocklist Settings Screen for enabling/disabling blocklist sources.
+ * Blocklist Settings Screen for managing built-in and custom blocklist sources.
  */
 @Composable
 fun BlocklistSettingsScreen() {
     val viewModel: SettingsViewModel = hiltViewModel()
     val blocklistSources by viewModel.blocklistSources.observeAsState(emptyList())
+    val totalRuleCount by viewModel.totalRuleCount.observeAsState(0)
+
+    var newSourceName by remember { mutableStateOf("") }
+    var newSourceUrl by remember { mutableStateOf("") }
+
+    LaunchedEffect(Unit) {
+        viewModel.loadBlocklistSources()
+        viewModel.loadTotalRuleCount()
+    }
 
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .padding(16.dp)
+            .padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         Text(
-            text = "Blocklist Sources",
-            style = MaterialTheme.typography.headlineMedium
+            text = "Blocklist Sources Management",
+            style = MaterialTheme.typography.headlineMedium,
+            fontWeight = FontWeight.Bold
         )
 
-        Spacer(modifier = Modifier.height(8.dp))
+        Card(modifier = Modifier.fillMaxWidth()) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(16.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Column {
+                    Text("Total Active Rules", style = MaterialTheme.typography.labelLarge)
+                    Text("$totalRuleCount rules", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+                }
+                Button(onClick = { viewModel.syncBlocklistsNow() }) {
+                    Icon(imageVector = Icons.Default.Refresh, contentDescription = "Sync")
+                    Spacer(Modifier.width(6.dp))
+                    Text("Sync Now")
+                }
+            }
+        }
 
-        Text(
-            text = "Enable or disable blocklist sources to customize your protection.",
-            style = MaterialTheme.typography.bodyMedium
-        )
+        // Add custom source card
+        Card(modifier = Modifier.fillMaxWidth()) {
+            Column(
+                modifier = Modifier.padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Text("Add Custom Blocklist Source", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                OutlinedTextField(
+                    value = newSourceName,
+                    onValueChange = { newSourceName = it },
+                    modifier = Modifier.fillMaxWidth(),
+                    label = { Text("Source Name") },
+                    singleLine = true
+                )
+                OutlinedTextField(
+                    value = newSourceUrl,
+                    onValueChange = { newSourceUrl = it },
+                    modifier = Modifier.fillMaxWidth(),
+                    label = { Text("Source URL (txt/hosts format)") },
+                    singleLine = true
+                )
+                Button(
+                    onClick = {
+                        if (newSourceName.isNotBlank() && newSourceUrl.isNotBlank()) {
+                            viewModel.addCustomBlocklistSource(newSourceName, newSourceUrl)
+                            newSourceName = ""
+                            newSourceUrl = ""
+                        }
+                    },
+                    modifier = Modifier.align(Alignment.End),
+                    enabled = newSourceName.isNotBlank() && newSourceUrl.isNotBlank()
+                ) {
+                    Icon(imageVector = Icons.Default.Add, contentDescription = "Add")
+                    Spacer(Modifier.width(6.dp))
+                    Text("Add Source")
+                }
+            }
+        }
 
-        Spacer(modifier = Modifier.height(16.dp))
+        Text("Subscribed Sources (${blocklistSources.size})", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
 
         LazyColumn(
-            modifier = Modifier.weight(1f)
+            modifier = Modifier.weight(1f),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             items(blocklistSources) { source ->
                 BlocklistSourceItem(
                     source = source,
                     onToggle = { isEnabled ->
                         viewModel.setBlocklistSourceEnabled(source.id, isEnabled)
-                    }
+                    },
+                    onDelete = if (source.id.startsWith("custom_")) {
+                        { viewModel.deleteBlocklistSource(source.id) }
+                    } else null
                 )
             }
         }
@@ -73,37 +152,49 @@ fun BlocklistSettingsScreen() {
 @Composable
 fun BlocklistSourceItem(
     source: BlocklistSource,
-    onToggle: (Boolean) -> Unit
+    onToggle: (Boolean) -> Unit,
+    onDelete: (() -> Unit)? = null
 ) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(vertical = 8.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Column(
-            modifier = Modifier.weight(1f)
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(12.dp),
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            Text(
-                text = source.name,
-                style = MaterialTheme.typography.bodyLarge
-            )
-            Text(
-                text = "Category: ${source.category}",
-                style = MaterialTheme.typography.bodySmall
-            )
-            Text(
-                text = "License: ${source.license}",
-                style = MaterialTheme.typography.bodySmall
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = source.name,
+                    style = MaterialTheme.typography.bodyLarge,
+                    fontWeight = FontWeight.SemiBold
+                )
+                Text(
+                    text = "Category: ${source.category} • Format: ${source.format}",
+                    style = MaterialTheme.typography.bodySmall
+                )
+                if (source.lastUpdated != null) {
+                    Text(
+                        text = "Updated: ${source.lastUpdated}",
+                        style = MaterialTheme.typography.labelSmall
+                    )
+                }
+            }
+
+            if (onDelete != null) {
+                IconButton(onClick = onDelete) {
+                    Icon(
+                        imageVector = Icons.Default.Delete,
+                        contentDescription = "Delete",
+                        tint = MaterialTheme.colorScheme.error
+                    )
+                }
+            }
+
+            Switch(
+                checked = source.enabled,
+                onCheckedChange = onToggle
             )
         }
-
-        Spacer(modifier = Modifier.width(16.dp))
-
-        Switch(
-            checked = source.enabled,
-            onCheckedChange = onToggle
-        )
     }
 }
 

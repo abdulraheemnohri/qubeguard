@@ -5,15 +5,22 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.LiveData
 import androidx.lifecycle.MutableLiveData
 import androidx.lifecycle.viewModelScope
+import androidx.work.Constraints
+import androidx.work.ExistingWorkPolicy
+import androidx.work.NetworkType
+import androidx.work.OneTimeWorkRequestBuilder
+import androidx.work.WorkManager
 import com.qubeguard.app.browser.QubeManager
 import com.qubeguard.app.browser.QubeProfile
 import com.qubeguard.app.data.blocklist.BlocklistDao
+import com.qubeguard.app.data.blocklist.BlocklistFetcherWorker
 import com.qubeguard.app.data.blocklist.BlocklistSource
 import com.qubeguard.app.ml.MLClassifier
 import com.qubeguard.app.ml.ModelDownloader
 import com.qubeguard.app.policy.FeedbackCollector
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.launch
+import java.security.MessageDigest
 import javax.inject.Inject
 
 @HiltViewModel
@@ -41,19 +48,27 @@ class SettingsViewModel @Inject constructor(
     val falsePositiveCount: LiveData<Int> = _falsePositiveCount
     private val _allowAlwaysCount = MutableLiveData(0)
     val allowAlwaysCount: LiveData<Int> = _allowAlwaysCount
+    private val _totalRuleCount = MutableLiveData(0)
+    val totalRuleCount: LiveData<Int> = _totalRuleCount
 
     init {
         loadBlocklistSources()
         loadQubeProfiles()
         loadFeedbackStats()
+        loadTotalRuleCount()
     }
 
-    private fun loadBlocklistSources() { viewModelScope.launch { _blocklistSources.value = blocklistDao.getAllSources() } }
+    fun loadBlocklistSources() { viewModelScope.launch { _blocklistSources.value = blocklistDao.getAllSources() } }
     private fun loadQubeProfiles() { viewModelScope.launch { _qubeProfiles.value = qubeManager.getAllQubes() } }
     fun loadFeedbackStats() {
         viewModelScope.launch {
             _falsePositiveCount.value = feedbackCollector.getFalsePositiveCount()
             _allowAlwaysCount.value = feedbackCollector.getAllowAlwaysCount()
+        }
+    }
+    fun loadTotalRuleCount() {
+        viewModelScope.launch {
+            _totalRuleCount.value = blocklistDao.getTotalRuleCount()
         }
     }
 
@@ -63,6 +78,51 @@ class SettingsViewModel @Inject constructor(
             loadBlocklistSources()
         }
     }
+
+    fun addCustomBlocklistSource(name: String, url: String, category: String = "custom", format: String = "adblock_plus") {
+        viewModelScope.launch {
+            val id = "custom_" + sha256(url).substring(0, 10)
+            val source = BlocklistSource(
+                id = id,
+                name = name,
+                category = category,
+                url = url,
+                format = format,
+                license = "Custom",
+                updateIntervalHours = 24,
+                version = null,
+                sha256Hash = null,
+                lastUpdated = null,
+                enabled = true
+            )
+            blocklistDao.insertSource(source)
+            loadBlocklistSources()
+        }
+    }
+
+    fun deleteBlocklistSource(sourceId: String) {
+        viewModelScope.launch {
+            blocklistDao.deleteRulesBySource(sourceId)
+            blocklistDao.deleteSource(sourceId)
+            loadBlocklistSources()
+            loadTotalRuleCount()
+        }
+    }
+
+    fun syncBlocklistsNow() {
+        val constraints = Constraints.Builder()
+            .setRequiredNetworkType(NetworkType.CONNECTED)
+            .build()
+        val request = OneTimeWorkRequestBuilder<BlocklistFetcherWorker>()
+            .setConstraints(constraints)
+            .build()
+        WorkManager.getInstance(getApplication()).enqueueUniqueWork(
+            BlocklistFetcherWorker.WORK_NAME + "-manual",
+            ExistingWorkPolicy.REPLACE,
+            request
+        )
+    }
+
     fun createQube(name: String, color: Int = QubeProfile.predefinedColors.random()) {
         viewModelScope.launch { qubeManager.createQube(name, color); loadQubeProfiles() }
     }
@@ -102,6 +162,12 @@ class SettingsViewModel @Inject constructor(
     fun deleteLocalModel() { mlClassifier.close(); modelDownloader.deleteModel() }
     fun isModelLoaded(): Boolean = mlClassifier.isModelLoaded()
     fun isModelDownloaded(): Boolean = modelDownloader.isModelReady()
+
+    private fun sha256(input: String): String {
+        val digest = MessageDigest.getInstance("SHA-256")
+            .digest(input.toByteArray(Charsets.UTF_8))
+        return digest.joinToString("") { "%02x".format(it) }
+    }
 
     companion object {
         private const val PREFERENCES = "qubeguard_settings"

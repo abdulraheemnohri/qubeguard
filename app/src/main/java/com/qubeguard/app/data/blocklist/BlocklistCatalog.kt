@@ -26,7 +26,18 @@ object BlocklistCatalog {
         source("ublock_privacy", "uBlock Privacy", "privacy", "https://raw.githubusercontent.com/uBlockOrigin/uAssets/master/filters/privacy.txt", "adblock_plus", "GPLv3"),
         source("ublock_badware", "uBlock Badware Risks", "security", "https://raw.githubusercontent.com/uBlockOrigin/uAssets/master/filters/badware.txt", "adblock_plus", "GPLv3"),
         source("1hosts_pro", "1Hosts Pro", "privacy", "https://raw.githubusercontent.com/badmojr/1Hosts/master/Pro/adblock.txt", "adblock_plus", "Upstream terms"),
-        source("lightswitch05_ads", "Lightswitch05 Ads and Tracking", "privacy", "https://www.github.developerdan.com/hosts/lists/ads-and-tracking-extended.txt", "hosts", "Upstream terms")
+        source("lightswitch05_ads", "Lightswitch05 Ads and Tracking", "privacy", "https://www.github.developerdan.com/hosts/lists/ads-and-tracking-extended.txt", "hosts", "Upstream terms"),
+        source("blocklistproject_ads", "Blocklist Project Ads", "ads", "https://blocklistproject.github.io/Lists/ads.txt", "hosts", "Upstream terms"),
+        source("blocklistproject_tracking", "Blocklist Project Tracking", "privacy", "https://blocklistproject.github.io/Lists/tracking.txt", "hosts", "Upstream terms"),
+        source("blocklistproject_malware", "Blocklist Project Malware", "security", "https://blocklistproject.github.io/Lists/malware.txt", "hosts", "Upstream terms"),
+        source("blocklistproject_phishing", "Blocklist Project Phishing", "security", "https://blocklistproject.github.io/Lists/phishing.txt", "hosts", "Upstream terms"),
+        source("blocklistproject_fraud", "Blocklist Project Fraud", "security", "https://blocklistproject.github.io/Lists/fraud.txt", "hosts", "Upstream terms"),
+        source("blocklistproject_crypto", "Blocklist Project Crypto Mining", "security", "https://blocklistproject.github.io/Lists/crypto.txt", "hosts", "Upstream terms"),
+        source("blocklistproject_ransomware", "Blocklist Project Ransomware", "security", "https://blocklistproject.github.io/Lists/ransomware.txt", "hosts", "Upstream terms"),
+        source("blocklistproject_social", "Blocklist Project Social", "social", "https://blocklistproject.github.io/Lists/social.txt", "hosts", "Upstream terms"),
+        source("kadhosts", "KADhosts", "ads", "https://raw.githubusercontent.com/PolishFiltersTeam/KADhosts/master/KADhosts.txt", "hosts", "Upstream terms"),
+        source("fade_spam", "FadeMind Spam Hosts", "annoyances", "https://raw.githubusercontent.com/FadeMind/hosts.extras/master/add.Spam/hosts", "hosts", "Upstream terms"),
+        source("energized_blitz", "Energized BLITZ", "privacy", "https://block.energized.pro/blitz/domains.txt", "hosts", "Upstream terms")
     )
 
     private fun source(

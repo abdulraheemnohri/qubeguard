@@ -24,36 +24,60 @@ class BlocklistFetcherWorker @AssistedInject constructor(
 
     private val okHttpClient = OkHttpClient.Builder()
         .connectTimeout(30, TimeUnit.SECONDS)
-        .readTimeout(30, TimeUnit.SECONDS)
+        .readTimeout(90, TimeUnit.SECONDS)
         .build()
 
     override suspend fun doWork(): Result = withContext(Dispatchers.IO) {
         try {
             val sources = blocklistDao.getEnabledSources()
             if (sources.isEmpty()) return@withContext Result.success()
+
+            var failures = 0
             sources.forEach { source ->
                 try {
                     fetchAndUpdateBlocklist(source)
                 } catch (_: Exception) {
-                    // Continue with other sources; a single unavailable list must not abort the update batch.
+                    failures++
                 }
             }
-            Result.success()
+
+            if (failures == sources.size) Result.retry() else Result.success()
         } catch (_: Exception) {
             Result.retry()
         }
     }
 
     private suspend fun fetchAndUpdateBlocklist(source: BlocklistSource) {
-        val request = Request.Builder().url(source.url).build()
+        val request = Request.Builder()
+            .url(source.url)
+            .header("User-Agent", "QubeGuard/1.0 blocklist-updater")
+            .build()
+
         okHttpClient.newCall(request).execute().use { response ->
-            if (!response.isSuccessful) throw IOException("Failed to fetch blocklist: HTTP ${response.code}")
-            val rawContent = response.body?.string() ?: throw IOException("Empty response")
+            if (!response.isSuccessful) {
+                throw IOException("Failed to fetch ${source.id}: HTTP ${response.code}")
+            }
+
+            val rawContent = response.body?.string() ?: throw IOException("Empty response for ${source.id}")
+            if (rawContent.isBlank()) throw IOException("Blank response for ${source.id}")
+
             val sha256Hash = sha256(rawContent)
             if (source.sha256Hash == sha256Hash) return
 
             val updatedAt = Instant.now().toString()
-            val normalizedRules = normalizeRules(rawContent, source.format, source.id, updatedAt)
+            val normalizedRules = normalizeRules(
+                rawContent = rawContent,
+                format = source.format,
+                category = source.category,
+                sourceId = source.id,
+                lastUpdated = updatedAt
+            )
+
+            blocklistDao.deleteRulesBySource(source.id)
+            if (normalizedRules.isNotEmpty()) {
+                blocklistDao.insertRules(normalizedRules)
+            }
+
             blocklistDao.updateSource(
                 source.copy(
                     version = getVersionFromContent(rawContent),
@@ -61,76 +85,120 @@ class BlocklistFetcherWorker @AssistedInject constructor(
                     lastUpdated = updatedAt
                 )
             )
-            blocklistDao.deleteRulesBySource(source.id)
-            blocklistDao.insertRules(normalizedRules)
         }
     }
 
     private fun normalizeRules(
         rawContent: String,
         format: String,
+        category: String,
         sourceId: String,
         lastUpdated: String
-    ): List<BlocklistRule> {
-        return rawContent.lineSequence().mapNotNull { rawLine ->
-            val line = rawLine.trim()
-            if (line.isEmpty() || line.startsWith("!") || line.startsWith("#")) return@mapNotNull null
-            when (format.lowercase()) {
-                "adblock_plus", "adblock" -> normalizeAdBlockRule(line, sourceId, lastUpdated)
-                "hosts" -> normalizeHostsRule(line, sourceId, lastUpdated)
-                "regex" -> normalizeRegexRule(line, sourceId, lastUpdated)
-                else -> normalizeGenericRule(line, sourceId, lastUpdated)
-            }
-        }.toList()
-    }
+    ): List<BlocklistRule> = rawContent.lineSequence().mapNotNull { rawLine ->
+        val line = rawLine.trim()
+        if (line.isEmpty() || line.startsWith("!") || line.startsWith("#")) return@mapNotNull null
 
-    private fun normalizeAdBlockRule(line: String, sourceId: String, lastUpdated: String): BlocklistRule? {
+        when (format.lowercase()) {
+            "adblock_plus", "adblock" -> normalizeAdBlockRule(line, category, sourceId, lastUpdated)
+            "hosts" -> normalizeHostsRule(line, category, sourceId, lastUpdated)
+            "regex" -> normalizeRegexRule(line, category, sourceId, lastUpdated)
+            else -> normalizeGenericRule(line, category, sourceId, lastUpdated)
+        }
+    }.toList()
+
+    private fun normalizeAdBlockRule(
+        line: String,
+        category: String,
+        sourceId: String,
+        lastUpdated: String
+    ): BlocklistRule? {
         val isAllowlist = line.startsWith("@@")
         val cleanRule = if (isAllowlist) line.substring(2) else line
+        val withoutOptions = cleanRule.substringBefore("$")
         val rulePattern = when {
-            cleanRule.startsWith("||") -> cleanRule.removePrefix("||").removeSuffix("^")
-            cleanRule.startsWith("|") -> cleanRule.substring(1)
-            cleanRule.endsWith("^") -> cleanRule.dropLast(1)
-            else -> cleanRule
-        }
+            withoutOptions.startsWith("||") -> withoutOptions.removePrefix("||").removeSuffix("^")
+            withoutOptions.startsWith("|") -> withoutOptions.substring(1)
+            withoutOptions.endsWith("^") -> withoutOptions.dropLast(1)
+            else -> withoutOptions
+        }.trim('*')
+
         if (rulePattern.isBlank()) return null
+
         return BlocklistRule(
-            id = sha256(cleanRule), sourceId = sourceId, rule = rulePattern,
+            id = sha256(cleanRule),
+            sourceId = sourceId,
+            rule = rulePattern,
             type = if (rulePattern.contains('*') || rulePattern.contains('^')) "url" else "domain",
-            category = "ads", isAllowlist = isAllowlist, isCompiled = false, lastUpdated = lastUpdated
+            category = category,
+            isAllowlist = isAllowlist,
+            isCompiled = false,
+            lastUpdated = lastUpdated
         )
     }
 
-    private fun normalizeHostsRule(line: String, sourceId: String, lastUpdated: String): BlocklistRule? {
+    private fun normalizeHostsRule(
+        line: String,
+        category: String,
+        sourceId: String,
+        lastUpdated: String
+    ): BlocklistRule? {
         val parts = line.split(Regex("\\s+"))
         if (parts.size < 2) return null
         val domain = parts[1].trim().trimEnd('.')
-        if (domain.isBlank()) return null
+        if (domain.isBlank() || domain == "localhost" || domain == "broadcasthost") return null
+
         return BlocklistRule(
-            id = sha256(line), sourceId = sourceId, rule = domain, type = "domain",
-            category = "ads", isAllowlist = false, isCompiled = false, lastUpdated = lastUpdated
+            id = sha256(line),
+            sourceId = sourceId,
+            rule = domain,
+            type = "domain",
+            category = category,
+            isAllowlist = false,
+            isCompiled = false,
+            lastUpdated = lastUpdated
         )
     }
 
-    private fun normalizeRegexRule(line: String, sourceId: String, lastUpdated: String): BlocklistRule =
-        BlocklistRule(
-            id = sha256(line), sourceId = sourceId, rule = line, type = "regex",
-            category = "ads", isAllowlist = false, isCompiled = false, lastUpdated = lastUpdated
-        )
+    private fun normalizeRegexRule(
+        line: String,
+        category: String,
+        sourceId: String,
+        lastUpdated: String
+    ) = BlocklistRule(
+        id = sha256(line),
+        sourceId = sourceId,
+        rule = line,
+        type = "regex",
+        category = category,
+        isAllowlist = false,
+        isCompiled = false,
+        lastUpdated = lastUpdated
+    )
 
-    private fun normalizeGenericRule(line: String, sourceId: String, lastUpdated: String): BlocklistRule =
-        BlocklistRule(
-            id = sha256(line), sourceId = sourceId, rule = line, type = "domain",
-            category = "ads", isAllowlist = false, isCompiled = false, lastUpdated = lastUpdated
-        )
+    private fun normalizeGenericRule(
+        line: String,
+        category: String,
+        sourceId: String,
+        lastUpdated: String
+    ) = BlocklistRule(
+        id = sha256(line),
+        sourceId = sourceId,
+        rule = line,
+        type = "domain",
+        category = category,
+        isAllowlist = false,
+        isCompiled = false,
+        lastUpdated = lastUpdated
+    )
 
     private fun getVersionFromContent(content: String): String? {
-        val versionRegex = Regex("version:\\s*(\\d+\\.\\d+)")
+        val versionRegex = Regex("version:\\s*(\\d+(?:\\.\\d+)+)", RegexOption.IGNORE_CASE)
         return versionRegex.find(content)?.groupValues?.getOrNull(1)
     }
 
     private fun sha256(input: String): String {
-        val digest = MessageDigest.getInstance("SHA-256").digest(input.toByteArray(Charsets.UTF_8))
+        val digest = MessageDigest.getInstance("SHA-256")
+            .digest(input.toByteArray(Charsets.UTF_8))
         return digest.joinToString("") { "%02x".format(it) }
     }
 

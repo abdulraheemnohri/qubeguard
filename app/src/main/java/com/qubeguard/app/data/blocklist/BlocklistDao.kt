@@ -6,15 +6,13 @@ import androidx.room.OnConflictStrategy
 import androidx.room.Query
 import androidx.room.Update
 
-/**
- * Data Access Object (DAO) for BlocklistSource and BlocklistRule.
- * Provides methods to interact with the Room Database.
- */
 @Dao
 interface BlocklistDao {
-    // BlocklistSource operations
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertSource(source: BlocklistSource)
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertSources(sources: List<BlocklistSource>)
 
     @Update
     suspend fun updateSource(source: BlocklistSource)
@@ -31,7 +29,6 @@ interface BlocklistDao {
     @Query("DELETE FROM blocklist_sources WHERE id = :id")
     suspend fun deleteSource(id: String)
 
-    // BlocklistRule operations
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertRule(rule: BlocklistRule)
 
@@ -59,18 +56,17 @@ interface BlocklistDao {
     @Query("DELETE FROM blocklist_rules WHERE id = :id")
     suspend fun deleteRule(id: String)
 
-    // Combined queries for blocking logic
     @Query("""
-        SELECT * FROM blocklist_rules 
-        WHERE (rule = :domain OR rule LIKE '%.' || :domain OR rule LIKE :domain || '.%') 
+        SELECT * FROM blocklist_rules
+        WHERE (rule = :domain OR rule LIKE '%.' || :domain OR rule LIKE :domain || '.%')
         AND isAllowlist = 0
         LIMIT 1
     """)
     suspend fun getMatchingBlocklistRule(domain: String): BlocklistRule?
 
     @Query("""
-        SELECT * FROM blocklist_rules 
-        WHERE (rule = :domain OR rule LIKE '%.' || :domain OR rule LIKE :domain || '.%') 
+        SELECT * FROM blocklist_rules
+        WHERE (rule = :domain OR rule LIKE '%.' || :domain OR rule LIKE :domain || '.%')
         AND isAllowlist = 1
         LIMIT 1
     """)

@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
@@ -96,6 +97,7 @@ fun MainScreen(
     val trackersCount by viewModel.trackersCount.observeAsState(0)
     val malwareCount by viewModel.malwareCount.observeAsState(0)
     val savedMb by viewModel.estimatedSavedMb.observeAsState("0.0 MB")
+    val uptime by viewModel.formattedConnectionTime.observeAsState("00:00:00")
 
     LaunchedEffect(Unit) {
         viewModel.loadAnalytics()
@@ -113,18 +115,28 @@ fun MainScreen(
 
         Card(modifier = Modifier.fillMaxWidth()) {
             Column(modifier = Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text(
-                    if (vpnRunning) "Protection active" else "Protection paused",
-                    style = MaterialTheme.typography.titleLarge,
-                    fontWeight = FontWeight.SemiBold
-                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Text(
+                        if (vpnRunning) "CONNECTED" else "DISCONNECTED",
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.Bold,
+                        color = if (vpnRunning) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error
+                    )
+                    if (vpnRunning) {
+                        Text("Duration: $uptime", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                    }
+                }
                 Text(
                     if (vpnRunning) "VPN/DNS filtering is running. System-wide network requests are protected."
-                    else "Start protection to enable network-level filtering.",
+                    else "Start protection to enable system-wide ad, tracker, and DNS filtering.",
                     style = MaterialTheme.typography.bodyMedium
                 )
                 Button(
                     modifier = Modifier.fillMaxWidth(),
+                    colors = if (vpnRunning) ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error) else ButtonDefaults.buttonColors(),
                     onClick = {
                         if (vpnRunning) {
                             viewModel.stopVpn()
@@ -137,7 +149,7 @@ fun MainScreen(
                         }
                     }
                 ) {
-                    Text(if (vpnRunning) "Stop protection" else "Start protection")
+                    Text(if (vpnRunning) "Disconnect Protection" else "Connect Protection")
                 }
             }
         }

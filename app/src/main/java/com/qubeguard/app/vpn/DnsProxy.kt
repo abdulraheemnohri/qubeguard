@@ -49,7 +49,7 @@ class DnsProxy @Inject constructor(
                                     )
                                 )
                             }
-                            val response = DnsResponse.createIpResponse(request, localRecord.ipAddress)
+                            val response = DnsResponse.createIpResponse(request, localRecord.ipAddress, packet.data, packet.length)
                             socket?.send(DatagramPacket(response, response.size, packet.address, packet.port))
                             continue
                         }
@@ -72,7 +72,7 @@ class DnsProxy @Inject constructor(
                         if (blocked) {
                             val mode = getSinkholeMode()
                             val response = when (mode) {
-                                "NULL_IP", "0.0.0.0" -> DnsResponse.createIpResponse(request, "0.0.0.0")
+                                "NULL_IP", "0.0.0.0" -> DnsResponse.createIpResponse(request, "0.0.0.0", packet.data, packet.length)
                                 "NODATA" -> DnsResponse.createNoDataResponse(request, buffer, packet.length)
                                 "REFUSED" -> DnsResponse.createRefusedResponse(request, buffer, packet.length)
                                 else -> DnsResponse.createNxDomainResponse(request, buffer, packet.length)
@@ -185,26 +185,27 @@ class DnsProxy @Inject constructor(
             return response
         }
 
-        fun createIpResponse(request: DnsRequest, ipAddress: String): ByteArray {
-            val response = ByteArray(12 + 16)
+        fun createIpResponse(request: DnsRequest, ipAddress: String, query: ByteArray, queryLength: Int): ByteArray {
+            val answerBytes = ByteArray(16)
+            var p = 0
+            answerBytes[p++] = 0xC0.toByte(); answerBytes[p++] = 0x0C.toByte() // Compression pointer to domain name in Question section (offset 12)
+            answerBytes[p++] = 0x00; answerBytes[p++] = 0x01 // TYPE A
+            answerBytes[p++] = 0x00; answerBytes[p++] = 0x01 // CLASS IN
+            answerBytes[p++] = 0x00; answerBytes[p++] = 0x00; answerBytes[p++] = 0x01; answerBytes[p++] = 0x2C.toByte() // TTL 300
+            answerBytes[p++] = 0x00; answerBytes[p++] = 0x04 // RDLENGTH 4
+            val rawIp = InetAddress.getByName(ipAddress).address
+            System.arraycopy(rawIp, 0, answerBytes, p, 4)
+
+            val response = ByteArray(queryLength + answerBytes.size)
+            System.arraycopy(query, 0, response, 0, queryLength)
+            System.arraycopy(answerBytes, 0, response, queryLength, answerBytes.size)
+
             response[0] = (request.id ushr 8).toByte()
             response[1] = request.id.toByte()
-            response[2] = 0x81.toByte() // Standard query response, No error
-            response[3] = 0x80.toByte()
-            response[4] = 0x00; response[5] = 0x00 // QDCOUNT
+            response[2] = 0x81.toByte() // QR=1, Response, Authoritative
+            response[3] = 0x80.toByte() // RA=1, No error
             response[6] = 0x00; response[7] = 0x01 // ANCOUNT = 1
-            response[8] = 0x00; response[9] = 0x00 // NSCOUNT
-            response[10] = 0x00; response[11] = 0x00 // ARCOUNT
 
-            // Answer section
-            val ipBytes = InetAddress.getByName(ipAddress).address
-            var p = 12
-            response[p++] = 0xC0.toByte(); response[p++] = 0x0C.toByte() // Pointer to qname
-            response[p++] = 0x00; response[p++] = 0x01 // TYPE A
-            response[p++] = 0x00; response[p++] = 0x01 // CLASS IN
-            response[p++] = 0x00; response[p++] = 0x00; response[p++] = 0x01; response[p++] = 0x2C.toByte() // TTL 300
-            response[p++] = 0x00; response[p++] = 0x04 // RDLENGTH 4
-            System.arraycopy(ipBytes, 0, response, p, 4)
             return response
         }
     }

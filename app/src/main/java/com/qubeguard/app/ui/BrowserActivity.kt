@@ -6,8 +6,6 @@ import android.os.Bundle
 import android.view.View
 import android.view.ViewGroup
 import android.webkit.WebChromeClient
-import android.webkit.WebView
-import android.webkit.WebViewClient
 import android.widget.FrameLayout
 import android.widget.Toast
 import androidx.activity.ComponentActivity
@@ -483,6 +481,10 @@ fun BrowserScreen(
                         onTitleReceived = { title ->
                             viewModel.updateActiveTabUrl(url ?: "", title)
                         }
+                        onUrlLoadingListener = { newUrl ->
+                            urlInput = newUrl
+                            viewModel.updateActiveTabUrl(newUrl)
+                        }
                         onShowCustomViewListener = { view, callback ->
                             onShowVideo?.invoke(view, callback)
                         }
@@ -498,17 +500,6 @@ fun BrowserScreen(
                             val fileName = Uri.parse(downloadUrl).lastPathSegment ?: "file"
                             viewModel.addDownload(downloadUrl, fileName, len, mime)
                             Toast.makeText(ctx, "Download started: $fileName", Toast.LENGTH_SHORT).show()
-                        }
-                        webViewClient = object : WebViewClient() {
-                            @Deprecated("Deprecated in Java")
-                            override fun shouldOverrideUrlLoading(view: WebView?, url: String?): Boolean {
-                                url?.let {
-                                    this@apply.loadUrl(it)
-                                    urlInput = it
-                                    viewModel.updateActiveTabUrl(it)
-                                }
-                                return true
-                            }
                         }
                         webView = this
                         loadUrl(activeTab?.url ?: initialUrl)

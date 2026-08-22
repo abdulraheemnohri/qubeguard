@@ -28,10 +28,11 @@ import javax.inject.Inject
 class VpnServiceImplementation : VpnService() {
     @Inject lateinit var deterministicBlocker: DeterministicBlocker
     @Inject lateinit var blocklistDao: BlocklistDao
+    @Inject lateinit var dnsProxy: DnsProxy
     private lateinit var vpnThread: Thread
     @Volatile private var isRunning = false
     private var vpnInterface: ParcelFileDescriptor? = null
-    private lateinit var datagramChannel: DatagramChannel
+    private var datagramChannel: DatagramChannel? = null
     private val scope = CoroutineScope(Dispatchers.IO)
     private val dnsProxyPort = 5353
     private val upstreamDnsPort = 53
@@ -50,10 +51,12 @@ class VpnServiceImplementation : VpnService() {
         if (isRunning) return
         startForeground(NOTIFICATION_ID, createNotification())
 
+        dnsProxy.start()
+
         val builder = Builder()
             .setSession("QubeGuard VPN")
             .addAddress("10.0.0.2", 24)
-            .addDnsServer("10.0.0.2")
+            .addDnsServer("127.0.0.1")
             .addRoute("0.0.0.0", 0)
             .setMtu(1500)
 
@@ -68,22 +71,26 @@ class VpnServiceImplementation : VpnService() {
 
         vpnInterface = builder.establish()
 
-        vpnThread = Thread {
-            try {
-                datagramChannel = DatagramChannel.open()
-                datagramChannel.bind(InetSocketAddress(dnsProxyPort))
-                datagramChannel.configureBlocking(false)
-                isRunning = true
-                processDnsRequests()
-            } catch (_: Exception) {
-                isRunning = false
+        try {
+            datagramChannel = DatagramChannel.open().apply {
+                bind(InetSocketAddress(dnsProxyPort))
+                configureBlocking(false)
             }
+        } catch (_: Exception) {
+            // Channel open/bind fallback
+        }
+
+        isRunning = true
+        vpnThread = Thread {
+            processDnsRequests()
         }.also { it.start() }
     }
 
     private fun stopVpn() {
         isRunning = false
-        if (::datagramChannel.isInitialized) runCatching { datagramChannel.close() }
+        dnsProxy.stop()
+        runCatching { datagramChannel?.close() }
+        datagramChannel = null
         runCatching { vpnInterface?.close() }
         vpnInterface = null
         if (::vpnThread.isInitialized) runCatching { vpnThread.join(1000) }
@@ -97,8 +104,13 @@ class VpnServiceImplementation : VpnService() {
     private fun processDnsRequests() {
         while (isRunning) {
             try {
+                val channel = datagramChannel ?: break
                 val buffer = ByteBuffer.allocate(4096)
-                val clientAddress = datagramChannel.receive(buffer) ?: continue
+                val clientAddress = channel.receive(buffer)
+                if (clientAddress == null) {
+                    Thread.sleep(10)
+                    continue
+                }
                 buffer.flip()
                 val queryBytes = ByteArray(buffer.remaining()).also { buffer.get(it) }
                 val request = DnsRequest.parse(ByteBuffer.wrap(queryBytes))
@@ -120,7 +132,7 @@ class VpnServiceImplementation : VpnService() {
                         forwardQuery(queryBytes)
                     }
                     if (response.isNotEmpty()) {
-                        datagramChannel.send(ByteBuffer.wrap(response), clientAddress)
+                        channel.send(ByteBuffer.wrap(response), clientAddress)
                     }
                 }
             } catch (_: Exception) {

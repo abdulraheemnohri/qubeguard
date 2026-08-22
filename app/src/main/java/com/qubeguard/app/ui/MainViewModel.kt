@@ -9,6 +9,8 @@ import androidx.lifecycle.viewModelScope
 import com.qubeguard.app.data.blocklist.BlocklistDao
 import com.qubeguard.app.engine.QubeGuardService
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
@@ -39,6 +41,14 @@ class MainViewModel @Inject constructor(
     private val _estimatedSavedMb = MutableLiveData("0.0 MB")
     val estimatedSavedMb: LiveData<String> = _estimatedSavedMb
 
+    private val _connectionTimeSeconds = MutableLiveData(0L)
+    val connectionTimeSeconds: LiveData<Long> = _connectionTimeSeconds
+
+    private val _formattedConnectionTime = MutableLiveData("00:00:00")
+    val formattedConnectionTime: LiveData<String> = _formattedConnectionTime
+
+    private var timerJob: Job? = null
+
     init {
         loadAnalytics()
     }
@@ -53,7 +63,6 @@ class MainViewModel @Inject constructor(
             _trackersCount.value = blocked.count { it.reason.contains("Tracker", ignoreCase = true) || it.domain.contains("analytics", ignoreCase = true) }
             _malwareCount.value = blocked.size - (_adsCount.value ?: 0) - (_trackersCount.value ?: 0)
 
-            // ~50 KB estimated bandwidth saved per blocked request
             val savedBytes = blocked.size * 50 * 1024L
             val mb = savedBytes / (1024.0 * 1024.0)
             _estimatedSavedMb.value = "%.1f MB".format(mb)
@@ -66,6 +75,7 @@ class MainViewModel @Inject constructor(
             action = QubeGuardService.ACTION_START
         })
         _isVpnRunning.value = true
+        startConnectionTimer()
         loadAnalytics()
     }
 
@@ -75,5 +85,29 @@ class MainViewModel @Inject constructor(
             action = QubeGuardService.ACTION_STOP
         })
         _isVpnRunning.value = false
+        stopConnectionTimer()
+    }
+
+    private fun startConnectionTimer() {
+        timerJob?.cancel()
+        _connectionTimeSeconds.value = 0L
+        timerJob = viewModelScope.launch {
+            while (true) {
+                delay(1000)
+                val secs = (_connectionTimeSeconds.value ?: 0L) + 1
+                _connectionTimeSeconds.value = secs
+                val hours = secs / 3600
+                val mins = (secs % 3600) / 60
+                val s = secs % 60
+                _formattedConnectionTime.value = "%02d:%02d:%02d".format(hours, mins, s)
+            }
+        }
+    }
+
+    private fun stopConnectionTimer() {
+        timerJob?.cancel()
+        timerJob = null
+        _connectionTimeSeconds.value = 0L
+        _formattedConnectionTime.value = "00:00:00"
     }
 }

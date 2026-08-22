@@ -1,9 +1,13 @@
 package com.qubeguard.app.ui
 
+import android.app.Activity
 import android.content.Intent
+import android.net.VpnService
 import android.os.Bundle
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -19,6 +23,7 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -34,9 +39,46 @@ import dagger.hilt.android.AndroidEntryPoint
 
 @AndroidEntryPoint
 class MainActivity : ComponentActivity() {
+
+    private val vpnPermissionLauncher = registerForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        if (result.resultCode == Activity.RESULT_OK) {
+            val serviceIntent = VpnService.prepare(this)
+            if (serviceIntent == null) {
+                startVpnDirectly()
+            }
+        } else {
+            Toast.makeText(this, "VPN permission is required for network protection", Toast.LENGTH_SHORT).show()
+        }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        setContent { QubeGuardTheme { MainScreen() } }
+        setContent {
+            QubeGuardTheme {
+                Surface(modifier = Modifier.fillMaxSize()) {
+                    QubeGuardNavHost()
+                }
+            }
+        }
+    }
+
+    fun requestVpnPermissionAndStart() {
+        val intent = VpnService.prepare(this)
+        if (intent != null) {
+            vpnPermissionLauncher.launch(intent)
+        } else {
+            startVpnDirectly()
+        }
+    }
+
+    private fun startVpnDirectly() {
+        val serviceIntent = Intent(this, com.qubeguard.app.engine.QubeGuardService::class.java).apply {
+            action = com.qubeguard.app.engine.QubeGuardService.ACTION_START
+        }
+        startService(serviceIntent)
+        Toast.makeText(this, "QubeGuard VPN protection started", Toast.LENGTH_SHORT).show()
     }
 }
 
@@ -82,7 +124,17 @@ fun MainScreen(
                 )
                 Button(
                     modifier = Modifier.fillMaxWidth(),
-                    onClick = { if (vpnRunning) viewModel.stopVpn() else viewModel.startVpn() }
+                    onClick = {
+                        if (vpnRunning) {
+                            viewModel.stopVpn()
+                        } else {
+                            if (context is MainActivity) {
+                                context.requestVpnPermissionAndStart()
+                            } else {
+                                viewModel.startVpn()
+                            }
+                        }
+                    }
                 ) {
                     Text(if (vpnRunning) "Stop protection" else "Start protection")
                 }

@@ -12,6 +12,7 @@ import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkManager
 import com.qubeguard.app.browser.QubeManager
 import com.qubeguard.app.browser.QubeProfile
+import com.qubeguard.app.data.blocklist.BlocklistCatalog
 import com.qubeguard.app.data.blocklist.BlocklistDao
 import com.qubeguard.app.data.blocklist.BlocklistFetcherWorker
 import com.qubeguard.app.data.blocklist.BlocklistRule
@@ -95,7 +96,16 @@ class SettingsViewModel @Inject constructor(
         loadLocalDnsRecords()
     }
 
-    fun loadBlocklistSources() { viewModelScope.launch { _blocklistSources.value = blocklistDao.getAllSources() } }
+    fun loadBlocklistSources() {
+        viewModelScope.launch {
+            var sources = blocklistDao.getAllSources()
+            if (sources.isEmpty()) {
+                blocklistDao.insertSources(BlocklistCatalog.defaults)
+                sources = blocklistDao.getAllSources()
+            }
+            _blocklistSources.value = sources
+        }
+    }
     private fun loadQubeProfiles() { viewModelScope.launch { _qubeProfiles.value = qubeManager.getAllQubes() } }
     fun loadFeedbackStats() {
         viewModelScope.launch {

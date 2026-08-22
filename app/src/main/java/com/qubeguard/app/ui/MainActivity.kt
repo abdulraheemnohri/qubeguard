@@ -95,6 +95,7 @@ fun MainScreen(
     val adsCount by viewModel.adsCount.observeAsState(0)
     val trackersCount by viewModel.trackersCount.observeAsState(0)
     val malwareCount by viewModel.malwareCount.observeAsState(0)
+    val savedMb by viewModel.estimatedSavedMb.observeAsState("0.0 MB")
 
     LaunchedEffect(Unit) {
         viewModel.loadAnalytics()
@@ -144,6 +145,7 @@ fun MainScreen(
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             StatCard("Total Requests", totalQueries.toString(), Modifier.weight(1f))
             StatCard("Blocked", blockedQueries.toString(), Modifier.weight(1f))
+            StatCard("Data Saved", savedMb, Modifier.weight(1f))
         }
 
         // Threat Analytics Card
@@ -163,6 +165,11 @@ fun MainScreen(
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                     Text("Malware/Phishing Blocked:", style = MaterialTheme.typography.bodyMedium)
                     Text("${kotlin.math.max(0, malwareCount)}", fontWeight = FontWeight.Bold)
+                }
+                HorizontalDivider()
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                    Text("Est. Bandwidth Saved:", style = MaterialTheme.typography.bodyMedium)
+                    Text(savedMb, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
                 }
             }
         }

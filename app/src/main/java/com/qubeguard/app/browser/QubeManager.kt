@@ -49,6 +49,13 @@ class QubeManager @Inject constructor(
     }
 
     /**
+     * Clears history entries for a specific Qube profile.
+     */
+    suspend fun clearQubeHistory(qubeId: String) {
+        qubeDao.clearHistoryForQube(qubeId)
+    }
+
+    /**
      * Gets a Qube profile by its ID.
      * @param qubeId The ID of the Qube.
      * @return The QubeProfile, or null if not found.

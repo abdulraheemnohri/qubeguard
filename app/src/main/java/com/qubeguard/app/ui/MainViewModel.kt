@@ -36,6 +36,9 @@ class MainViewModel @Inject constructor(
     private val _malwareCount = MutableLiveData(0)
     val malwareCount: LiveData<Int> = _malwareCount
 
+    private val _estimatedSavedMb = MutableLiveData("0.0 MB")
+    val estimatedSavedMb: LiveData<String> = _estimatedSavedMb
+
     init {
         loadAnalytics()
     }
@@ -49,6 +52,11 @@ class MainViewModel @Inject constructor(
             _adsCount.value = blocked.count { it.reason.contains("Ad", ignoreCase = true) || it.domain.contains("ad", ignoreCase = true) }
             _trackersCount.value = blocked.count { it.reason.contains("Tracker", ignoreCase = true) || it.domain.contains("analytics", ignoreCase = true) }
             _malwareCount.value = blocked.size - (_adsCount.value ?: 0) - (_trackersCount.value ?: 0)
+
+            // ~50 KB estimated bandwidth saved per blocked request
+            val savedBytes = blocked.size * 50 * 1024L
+            val mb = savedBytes / (1024.0 * 1024.0)
+            _estimatedSavedMb.value = "%.1f MB".format(mb)
         }
     }
 

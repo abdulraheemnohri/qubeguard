@@ -87,7 +87,8 @@ fun QubeGuardNavHost(modifier: Modifier = Modifier) {
                     onNavigateToFeedback = { navController.navigate(NavGraph.FEEDBACK_SETTINGS) },
                     onNavigateToDnsLogs = { navController.navigate(NavGraph.DNS_LOGS) },
                     onNavigateToBypass = { navController.navigate(NavGraph.APP_BYPASS) },
-                    onNavigateToCustomRules = { navController.navigate(NavGraph.CUSTOM_RULES) }
+                    onNavigateToCustomRules = { navController.navigate(NavGraph.CUSTOM_RULES) },
+                    onNavigateToLocalDns = { navController.navigate(NavGraph.LOCAL_DNS) }
                 )
             }
             composable(NavGraph.BLOCK_PAGE) {
@@ -113,6 +114,9 @@ fun QubeGuardNavHost(modifier: Modifier = Modifier) {
             }
             composable(NavGraph.CUSTOM_RULES) {
                 CustomRulesScreen()
+            }
+            composable(NavGraph.LOCAL_DNS) {
+                LocalDnsScreen()
             }
             composable(NavGraph.FEEDBACK_SETTINGS) {
                 FeedbackSettingsScreen()

@@ -12,7 +12,7 @@ import java.util.UUID
 import javax.inject.Inject
 import kotlinx.coroutines.runBlocking
 
-/** Lightweight DNS proxy used by the VPN layer. */
+/** Lightweight Pi-hole style DNS proxy used by the VPN layer. */
 class DnsProxy @Inject constructor(
     @ApplicationContext private val context: Context,
     private val deterministicBlocker: DeterministicBlocker,
@@ -34,6 +34,27 @@ class DnsProxy @Inject constructor(
                         val packet = DatagramPacket(buffer, buffer.size)
                         socket?.receive(packet)
                         val request = DnsRequest.parse(packet.data, packet.length)
+
+                        // 1. Local DNS Custom Records
+                        val localRecord = runBlocking { blocklistDao.getLocalDnsRecordForDomain(request.domain) }
+                        if (localRecord != null) {
+                            runBlocking {
+                                blocklistDao.insertDnsLog(
+                                    DnsLogEntity(
+                                        id = UUID.randomUUID().toString(),
+                                        domain = request.domain,
+                                        isBlocked = false,
+                                        reason = "Local DNS (${localRecord.ipAddress})",
+                                        timestamp = System.currentTimeMillis().toString()
+                                    )
+                                )
+                            }
+                            val response = DnsResponse.createIpResponse(request, localRecord.ipAddress)
+                            socket?.send(DatagramPacket(response, response.size, packet.address, packet.port))
+                            continue
+                        }
+
+                        // 2. Deterministic Blocklist Check
                         val blocked = runBlocking { deterministicBlocker.isBlocked(request.domain) }
 
                         runBlocking {
@@ -42,17 +63,25 @@ class DnsProxy @Inject constructor(
                                     id = UUID.randomUUID().toString(),
                                     domain = request.domain,
                                     isBlocked = blocked,
-                                    reason = if (blocked) "Deterministic Blocklist" else "Allowed",
+                                    reason = if (blocked) "Gravity Blocklist" else "Allowed",
                                     timestamp = System.currentTimeMillis().toString()
                                 )
                             )
                         }
 
                         if (blocked) {
-                            val response = DnsResponse.createNxDomainResponse(request, buffer, packet.length)
+                            val mode = getSinkholeMode()
+                            val response = when (mode) {
+                                "NULL_IP", "0.0.0.0" -> DnsResponse.createIpResponse(request, "0.0.0.0")
+                                "NODATA" -> DnsResponse.createNoDataResponse(request, buffer, packet.length)
+                                "REFUSED" -> DnsResponse.createRefusedResponse(request, buffer, packet.length)
+                                else -> DnsResponse.createNxDomainResponse(request, buffer, packet.length)
+                            }
                             socket?.send(DatagramPacket(response, response.size, packet.address, packet.port))
                         } else {
-                            forward(packet)
+                            // 3. Conditional Forwarding Check
+                            val condServer = getConditionalTargetServer(request.domain)
+                            forward(packet, condServer ?: getUpstreamDnsServer())
                         }
                     } catch (_: Exception) {
                         if (isRunning) continue
@@ -64,16 +93,32 @@ class DnsProxy @Inject constructor(
         }
     }
 
+    private fun getSinkholeMode(): String {
+        val prefs = context.getSharedPreferences("qubeguard_settings", Context.MODE_PRIVATE)
+        return prefs.getString("pihole_sinkhole_mode", "NXDOMAIN") ?: "NXDOMAIN"
+    }
+
     private fun getUpstreamDnsServer(): String {
         val prefs = context.getSharedPreferences("qubeguard_settings", Context.MODE_PRIVATE)
         return prefs.getString("upstream_dns_ip", "1.1.1.1") ?: "1.1.1.1"
     }
 
-    private fun forward(packet: DatagramPacket) {
+    private fun getConditionalTargetServer(domain: String): String? {
+        val prefs = context.getSharedPreferences("qubeguard_settings", Context.MODE_PRIVATE)
+        val enabled = prefs.getBoolean("pihole_conditional_enabled", false)
+        if (!enabled) return null
+        val condDomain = prefs.getString("pihole_conditional_domain", "home.arpa") ?: "home.arpa"
+        if (domain.endsWith(condDomain) || domain == condDomain) {
+            return prefs.getString("pihole_conditional_ip", "192.168.1.1")
+        }
+        return null
+    }
+
+    private fun forward(packet: DatagramPacket, dnsServerIp: String) {
         val upstream = DatagramSocket()
         try {
             upstream.soTimeout = 5000
-            val address = InetAddress.getByName(getUpstreamDnsServer())
+            val address = InetAddress.getByName(dnsServerIp)
             upstream.send(DatagramPacket(packet.data, packet.length, address, 53))
             val responseBuffer = ByteArray(4096)
             val response = DatagramPacket(responseBuffer, responseBuffer.size)
@@ -119,6 +164,47 @@ class DnsProxy @Inject constructor(
             response[1] = request.id.toByte()
             response[2] = 0x85.toByte()
             response[3] = 0x83.toByte()
+            return response
+        }
+
+        fun createNoDataResponse(request: DnsRequest, query: ByteArray, queryLength: Int): ByteArray {
+            val response = query.copyOf(queryLength)
+            response[0] = (request.id ushr 8).toByte()
+            response[1] = request.id.toByte()
+            response[2] = 0x85.toByte()
+            response[3] = 0x80.toByte() // NO ERROR, 0 answers
+            return response
+        }
+
+        fun createRefusedResponse(request: DnsRequest, query: ByteArray, queryLength: Int): ByteArray {
+            val response = query.copyOf(queryLength)
+            response[0] = (request.id ushr 8).toByte()
+            response[1] = request.id.toByte()
+            response[2] = 0x85.toByte()
+            response[3] = 0x85.toByte() // REFUSED
+            return response
+        }
+
+        fun createIpResponse(request: DnsRequest, ipAddress: String): ByteArray {
+            val response = ByteArray(12 + 16)
+            response[0] = (request.id ushr 8).toByte()
+            response[1] = request.id.toByte()
+            response[2] = 0x81.toByte() // Standard query response, No error
+            response[3] = 0x80.toByte()
+            response[4] = 0x00; response[5] = 0x00 // QDCOUNT
+            response[6] = 0x00; response[7] = 0x01 // ANCOUNT = 1
+            response[8] = 0x00; response[9] = 0x00 // NSCOUNT
+            response[10] = 0x00; response[11] = 0x00 // ARCOUNT
+
+            // Answer section
+            val ipBytes = InetAddress.getByName(ipAddress).address
+            var p = 12
+            response[p++] = 0xC0.toByte(); response[p++] = 0x0C.toByte() // Pointer to qname
+            response[p++] = 0x00; response[p++] = 0x01 // TYPE A
+            response[p++] = 0x00; response[p++] = 0x01 // CLASS IN
+            response[p++] = 0x00; response[p++] = 0x00; response[p++] = 0x01; response[p++] = 0x2C.toByte() // TTL 300
+            response[p++] = 0x00; response[p++] = 0x04 // RDLENGTH 4
+            System.arraycopy(ipBytes, 0, response, p, 4)
             return response
         }
     }

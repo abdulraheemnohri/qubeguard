@@ -13,17 +13,22 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material3.Button
 import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.livedata.observeAsState
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
@@ -34,15 +39,52 @@ import com.qubeguard.app.data.blocklist.DnsLogEntity
 import com.qubeguard.app.ui.theme.QubeGuardTheme
 
 /**
- * Screen displaying live DNS logs and network requests.
+ * Pi-hole style Query Log & Analytics Screen.
  */
 @Composable
 fun DnsLogScreen() {
     val viewModel: SettingsViewModel = hiltViewModel()
     val dnsLogs by viewModel.dnsLogs.observeAsState(emptyList())
 
+    var filterType by remember { mutableStateOf("ALL") } // ALL, BLOCKED, ALLOWED
+    var searchQuery by remember { mutableStateOf("") }
+
     LaunchedEffect(Unit) {
         viewModel.loadDnsLogs()
+    }
+
+    val totalQueries = dnsLogs.size
+    val blockedQueries = dnsLogs.count { it.isBlocked }
+    val blockPercentage = if (totalQueries > 0) (blockedQueries * 100) / totalQueries else 0
+
+    val topBlocked = remember(dnsLogs) {
+        dnsLogs.filter { it.isBlocked }
+            .groupingBy { it.domain }
+            .eachCount()
+            .entries
+            .sortedByDescending { it.value }
+            .take(3)
+    }
+
+    val topPermitted = remember(dnsLogs) {
+        dnsLogs.filter { !it.isBlocked }
+            .groupingBy { it.domain }
+            .eachCount()
+            .entries
+            .sortedByDescending { it.value }
+            .take(3)
+    }
+
+    val filteredLogs = remember(dnsLogs, filterType, searchQuery) {
+        dnsLogs.filter { log ->
+            val matchesFilter = when (filterType) {
+                "BLOCKED" -> log.isBlocked
+                "ALLOWED" -> !log.isBlocked
+                else -> true
+            }
+            val matchesSearch = searchQuery.isBlank() || log.domain.contains(searchQuery.trim(), ignoreCase = true)
+            matchesFilter && matchesSearch
+        }
     }
 
     Column(
@@ -57,8 +99,8 @@ fun DnsLogScreen() {
             verticalAlignment = Alignment.CenterVertically
         ) {
             Column {
-                Text("DNS Network Monitor", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
-                Text("Real-time local DNS requests", style = MaterialTheme.typography.bodyMedium)
+                Text("Pi-hole Query Monitor", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
+                Text("Total: $totalQueries • Blocked: $blockedQueries ($blockPercentage%)", style = MaterialTheme.typography.bodyMedium)
             }
             Row {
                 IconButton(onClick = { viewModel.loadDnsLogs() }) {
@@ -70,10 +112,55 @@ fun DnsLogScreen() {
             }
         }
 
-        if (dnsLogs.isEmpty()) {
+        // Top Blocked / Permitted Analytics
+        if (dnsLogs.isNotEmpty()) {
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Card(modifier = Modifier.weight(1f), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.4f))) {
+                    Column(modifier = Modifier.padding(10.dp)) {
+                        Text("Top Blocked", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
+                        if (topBlocked.isEmpty()) {
+                            Text("None", style = MaterialTheme.typography.bodySmall)
+                        } else {
+                            topBlocked.forEach { (domain, count) ->
+                                Text("$domain ($count)", style = MaterialTheme.typography.bodySmall, maxLines = 1)
+                            }
+                        }
+                    }
+                }
+                Card(modifier = Modifier.weight(1f), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f))) {
+                    Column(modifier = Modifier.padding(10.dp)) {
+                        Text("Top Permitted", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
+                        if (topPermitted.isEmpty()) {
+                            Text("None", style = MaterialTheme.typography.bodySmall)
+                        } else {
+                            topPermitted.forEach { (domain, count) ->
+                                Text("$domain ($count)", style = MaterialTheme.typography.bodySmall, maxLines = 1)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Search & Filter
+        OutlinedTextField(
+            value = searchQuery,
+            onValueChange = { searchQuery = it },
+            placeholder = { Text("Filter by domain...") },
+            modifier = Modifier.fillMaxWidth(),
+            singleLine = true
+        )
+
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            FilterChip(selected = filterType == "ALL", onClick = { filterType = "ALL" }, label = { Text("All ($totalQueries)") })
+            FilterChip(selected = filterType == "BLOCKED", onClick = { filterType = "BLOCKED" }, label = { Text("Blocked ($blockedQueries)") })
+            FilterChip(selected = filterType == "ALLOWED", onClick = { filterType = "ALLOWED" }, label = { Text("Allowed (${totalQueries - blockedQueries})") })
+        }
+
+        if (filteredLogs.isEmpty()) {
             Card(modifier = Modifier.fillMaxWidth()) {
                 Text(
-                    text = "No DNS logs captured yet. Start protection or browse to see live request logs.",
+                    text = "No matching DNS logs found.",
                     modifier = Modifier.padding(16.dp),
                     style = MaterialTheme.typography.bodyMedium
                 )
@@ -83,7 +170,7 @@ fun DnsLogScreen() {
                 modifier = Modifier.weight(1f),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                items(dnsLogs) { log ->
+                items(filteredLogs, key = { it.id }) { log ->
                     DnsLogItem(log = log)
                 }
             }

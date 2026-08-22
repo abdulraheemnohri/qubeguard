@@ -67,7 +67,8 @@ fun SettingsScreen(
     onNavigateToFeedback: (() -> Unit)? = null,
     onNavigateToDnsLogs: (() -> Unit)? = null,
     onNavigateToBypass: (() -> Unit)? = null,
-    onNavigateToCustomRules: (() -> Unit)? = null
+    onNavigateToCustomRules: (() -> Unit)? = null,
+    onNavigateToLocalDns: (() -> Unit)? = null
 ) {
     val viewModel: SettingsViewModel = hiltViewModel()
     val context = LocalContext.current
@@ -77,9 +78,12 @@ fun SettingsScreen(
     val autoUpdate by viewModel.isAutoModelUpdateEnabled.observeAsState(false)
     val upstreamDns by viewModel.upstreamDns.observeAsState("1.1.1.1")
     val themeMode by viewModel.themeMode.observeAsState("system")
+    val sinkholeMode by viewModel.sinkholeMode.observeAsState("NXDOMAIN")
+    val dnssecEnabled by viewModel.dnssecEnabled.observeAsState(false)
 
     var showDnsMenu by remember { mutableStateOf(false) }
     var showThemeMenu by remember { mutableStateOf(false) }
+    var showSinkholeMenu by remember { mutableStateOf(false) }
     var showExportDialog by remember { mutableStateOf(false) }
     var showImportDialog by remember { mutableStateOf(false) }
     var exportedJsonText by remember { mutableStateOf("") }
@@ -90,6 +94,13 @@ fun SettingsScreen(
         "94.140.14.14" to "AdGuard DNS (94.140.14.14)",
         "9.9.9.9" to "Quad9 (9.9.9.9)",
         "8.8.8.8" to "Google DNS (8.8.8.8)"
+    )
+
+    val sinkholeModes = mapOf(
+        "NXDOMAIN" to "NXDOMAIN (Non-Existent Domain)",
+        "NULL_IP" to "0.0.0.0 (Null IP)",
+        "NODATA" to "NODATA (No Answer)",
+        "REFUSED" to "REFUSED (Query Refused)"
     )
 
     val themeOptions = mapOf(
@@ -106,7 +117,7 @@ fun SettingsScreen(
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         Text("Settings", style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.Bold)
-        Text("Privacy controls, network DNS, and local protection", style = MaterialTheme.typography.bodyMedium)
+        Text("Privacy controls, Pi-hole DNS sinkhole, and local protection", style = MaterialTheme.typography.bodyMedium)
 
         SettingsCard("App Theme") {
             Text("Interface Theme", style = MaterialTheme.typography.labelLarge)
@@ -125,6 +136,34 @@ fun SettingsScreen(
                         )
                     }
                 }
+            }
+        }
+
+        SettingsCard("Pi-hole Sinkhole & Local DNS Settings") {
+            Text("Sinkhole Blocking Response Mode", style = MaterialTheme.typography.labelLarge)
+            Box {
+                OutlinedButton(onClick = { showSinkholeMenu = true }) {
+                    Text(sinkholeModes[sinkholeMode] ?: "NXDOMAIN")
+                }
+                DropdownMenu(expanded = showSinkholeMenu, onDismissRequest = { showSinkholeMenu = false }) {
+                    sinkholeModes.forEach { (mode, label) ->
+                        DropdownMenuItem(
+                            text = { Text(label) },
+                            onClick = {
+                                viewModel.setSinkholeMode(mode)
+                                showSinkholeMenu = false
+                            }
+                        )
+                    }
+                }
+            }
+            HorizontalDivider()
+            SettingSwitch("DNSSEC Validation", "Validate DNS signature responses from upstream servers.", dnssecEnabled) {
+                viewModel.setDnssecEnabled(it)
+            }
+            Spacer(Modifier.height(4.dp))
+            if (onNavigateToLocalDns != null) {
+                Button(onClick = onNavigateToLocalDns) { Text("Custom Local DNS Records") }
             }
         }
 

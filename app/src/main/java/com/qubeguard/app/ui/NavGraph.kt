@@ -17,4 +17,5 @@ object NavGraph {
     const val DNS_LOGS = "dns_logs"
     const val APP_BYPASS = "app_bypass"
     const val CUSTOM_RULES = "custom_rules"
+    const val LOCAL_DNS = "local_dns"
 }

@@ -25,12 +25,28 @@ class SecureWebView @JvmOverloads constructor(
     @Inject lateinit var mlClassifier: MLClassifier
 
     private var qubeId: String = "default"
+    var isCosmeticAdHidingEnabled: Boolean = true
     var onProgressChanged: ((Int) -> Unit)? = null
     var onTitleReceived: ((String) -> Unit)? = null
+    var onDownloadTriggered: ((url: String, userAgent: String, contentDisposition: String, mimeType: String, contentLength: Long) -> Unit)? = null
 
     companion object {
         const val MOBILE_USER_AGENT = "Mozilla/5.0 (Linux; Android 10; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/100.0.0.0 Mobile Safari/537.36"
         const val DESKTOP_USER_AGENT = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+
+        private const val COSMETIC_AD_BLOCK_SCRIPT = """
+            (function() {
+                var selectors = [
+                    'iframe[src*="ads"]', 'iframe[src*="doubleclick"]',
+                    'div[id*="google_ads"]', 'div[class*="ad-banner"]',
+                    'div[class*="ad-container"]', '.ad-slot', '.sponsored-post',
+                    '.ad-wrapper', '.ad-box', 'ins.adsbygoogle', '[class*="sponsored"]'
+                ];
+                var style = document.createElement('style');
+                style.innerHTML = selectors.join(', ') + ' { display: none !important; visibility: hidden !important; height: 0 !important; opacity: 0 !important; pointer-events: none !important; }';
+                document.head.appendChild(style);
+            })();
+        """
     }
 
     init {
@@ -48,7 +64,11 @@ class SecureWebView @JvmOverloads constructor(
         settings.textZoom = 100
         settings.userAgentString = MOBILE_USER_AGENT
 
-        webViewClient = SecureWebViewClient(deterministicBlocker, mlClassifier)
+        webViewClient = SecureWebViewClient(deterministicBlocker, mlClassifier) {
+            if (isCosmeticAdHidingEnabled) {
+                evaluateJavascript(COSMETIC_AD_BLOCK_SCRIPT, null)
+            }
+        }
         webChromeClient = object : WebChromeClient() {
             override fun onProgressChanged(view: WebView?, newProgress: Int) {
                 super.onProgressChanged(view, newProgress)
@@ -59,6 +79,10 @@ class SecureWebView @JvmOverloads constructor(
                 super.onReceivedTitle(view, title)
                 title?.let { onTitleReceived?.invoke(it) }
             }
+        }
+
+        setDownloadListener { url, userAgent, contentDisposition, mimetype, contentLength ->
+            onDownloadTriggered?.invoke(url, userAgent, contentDisposition, mimetype, contentLength)
         }
 
         CookieManager.getInstance().setAcceptThirdPartyCookies(this, false)
@@ -86,7 +110,8 @@ class SecureWebView @JvmOverloads constructor(
 
     class SecureWebViewClient(
         private val deterministicBlocker: DeterministicBlocker,
-        private val mlClassifier: MLClassifier
+        private val mlClassifier: MLClassifier,
+        private val onPageFinishedCallback: () -> Unit
     ) : WebViewClient() {
         override fun shouldInterceptRequest(
             view: WebView?,
@@ -103,6 +128,11 @@ class SecureWebView @JvmOverloads constructor(
             }
 
             return null
+        }
+
+        override fun onPageFinished(view: WebView?, url: String?) {
+            super.onPageFinished(view, url)
+            onPageFinishedCallback()
         }
 
         private fun createBlockedResponse(): WebResourceResponse =

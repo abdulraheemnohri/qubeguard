@@ -6,6 +6,7 @@ import androidx.lifecycle.LiveData
 import androidx.lifecycle.MutableLiveData
 import androidx.lifecycle.viewModelScope
 import com.qubeguard.app.browser.BookmarkEntity
+import com.qubeguard.app.browser.DownloadItem
 import com.qubeguard.app.browser.HistoryEntity
 import com.qubeguard.app.browser.QubeDao
 import com.qubeguard.app.browser.QubeManager
@@ -39,6 +40,9 @@ class BrowserViewModel @Inject constructor(
     private val _isDesktopMode = MutableLiveData(false)
     val isDesktopMode: LiveData<Boolean> = _isDesktopMode
 
+    private val _isCosmeticAdHidingEnabled = MutableLiveData(true)
+    val isCosmeticAdHidingEnabled: LiveData<Boolean> = _isCosmeticAdHidingEnabled
+
     private val _searchEngine = MutableLiveData("DuckDuckGo")
     val searchEngine: LiveData<String> = _searchEngine
 
@@ -56,6 +60,9 @@ class BrowserViewModel @Inject constructor(
 
     private val _history = MutableLiveData<List<HistoryEntity>>(emptyList())
     val history: LiveData<List<HistoryEntity>> = _history
+
+    private val _downloads = MutableLiveData<List<DownloadItem>>(emptyList())
+    val downloads: LiveData<List<DownloadItem>> = _downloads
 
     init {
         loadQubes()
@@ -87,8 +94,25 @@ class BrowserViewModel @Inject constructor(
         _isDesktopMode.value = !(_isDesktopMode.value ?: false)
     }
 
+    fun toggleCosmeticAdHiding() {
+        _isCosmeticAdHidingEnabled.value = !(_isCosmeticAdHidingEnabled.value ?: true)
+    }
+
     fun setSearchEngine(engine: String) {
         _searchEngine.value = engine
+    }
+
+    fun addDownload(url: String, fileName: String, sizeBytes: Long, mimeType: String) {
+        val item = DownloadItem(
+            id = UUID.randomUUID().toString(),
+            url = url,
+            fileName = fileName,
+            sizeBytes = sizeBytes,
+            mimeType = mimeType,
+            timestamp = System.currentTimeMillis().toString()
+        )
+        val current = _downloads.value.orEmpty() + item
+        _downloads.value = current
     }
 
     fun addNewTab(url: String = "https://duckduckgo.com") {

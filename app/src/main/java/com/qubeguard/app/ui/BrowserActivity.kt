@@ -1,9 +1,11 @@
 package com.qubeguard.app.ui
 
 import android.content.Intent
+import android.net.Uri
 import android.os.Bundle
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.border
@@ -45,6 +47,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -94,12 +97,14 @@ fun BrowserScreen(initialUrl: String = "https://duckduckgo.com") {
     val tabs by viewModel.tabs.observeAsState(emptyList())
     val activeTabId by viewModel.activeTabId.observeAsState("")
     val isDesktopMode by viewModel.isDesktopMode.observeAsState(false)
+    val cosmeticAdHidingActive by viewModel.isCosmeticAdHidingEnabled.observeAsState(true)
     val searchEngine by viewModel.searchEngine.observeAsState("DuckDuckGo")
     val loadProgress by viewModel.loadProgress.observeAsState(0)
     val selectedQube by viewModel.selectedQube.observeAsState()
     val qubes by viewModel.qubes.observeAsState(emptyList())
     val bookmarks by viewModel.bookmarks.observeAsState(emptyList())
     val history by viewModel.history.observeAsState(emptyList())
+    val downloads by viewModel.downloads.observeAsState(emptyList())
 
     var urlInput by remember { mutableStateOf(initialUrl) }
     var webView: SecureWebView? by remember { mutableStateOf(null) }
@@ -107,6 +112,8 @@ fun BrowserScreen(initialUrl: String = "https://duckduckgo.com") {
     var showTabSwitcherDialog by remember { mutableStateOf(false) }
     var showBookmarksDialog by remember { mutableStateOf(false) }
     var showHistoryDialog by remember { mutableStateOf(false) }
+    var showDownloadsDialog by remember { mutableStateOf(false) }
+    var showShieldsDialog by remember { mutableStateOf(false) }
     var showQubeDialog by remember { mutableStateOf(false) }
     var showSearchEngineDialog by remember { mutableStateOf(false) }
 
@@ -120,6 +127,10 @@ fun BrowserScreen(initialUrl: String = "https://duckduckgo.com") {
 
     LaunchedEffect(isDesktopMode) {
         webView?.setDesktopMode(isDesktopMode)
+    }
+
+    LaunchedEffect(cosmeticAdHidingActive) {
+        webView?.isCosmeticAdHidingEnabled = cosmeticAdHidingActive
     }
 
     Column(modifier = Modifier.fillMaxSize()) {
@@ -152,7 +163,8 @@ fun BrowserScreen(initialUrl: String = "https://duckduckgo.com") {
                             Icon(
                                 imageVector = Icons.Default.Lock,
                                 contentDescription = "Secure",
-                                tint = if (urlInput.startsWith("https://")) MaterialTheme.colorScheme.primary else Color.Gray
+                                tint = if (urlInput.startsWith("https://")) MaterialTheme.colorScheme.primary else Color.Gray,
+                                modifier = Modifier.clickable { showShieldsDialog = true }
                             )
                         },
                         trailingIcon = {
@@ -209,6 +221,20 @@ fun BrowserScreen(initialUrl: String = "https://duckduckgo.com") {
                                 text = { Text("Search Engine: $searchEngine") },
                                 onClick = {
                                     showSearchEngineDialog = true
+                                    showOverflowMenu = false
+                                }
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Browser Shields & Privacy") },
+                                onClick = {
+                                    showShieldsDialog = true
+                                    showOverflowMenu = false
+                                }
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Downloads (${downloads.size})") },
+                                onClick = {
+                                    showDownloadsDialog = true
                                     showOverflowMenu = false
                                 }
                             )
@@ -277,11 +303,17 @@ fun BrowserScreen(initialUrl: String = "https://duckduckgo.com") {
                 SecureWebView(ctx).apply {
                     selectedQube?.let { setQubeId(it.id) }
                     setDesktopMode(isDesktopMode)
+                    isCosmeticAdHidingEnabled = cosmeticAdHidingActive
                     onProgressChanged = { progress ->
                         viewModel.setLoadProgress(progress)
                     }
                     onTitleReceived = { title ->
                         viewModel.updateActiveTabUrl(url ?: "", title)
+                    }
+                    onDownloadTriggered = { downloadUrl, _, contentDisp, mime, len ->
+                        val fileName = Uri.parse(downloadUrl).lastPathSegment ?: "file"
+                        viewModel.addDownload(downloadUrl, fileName, len, mime)
+                        Toast.makeText(ctx, "Download started: $fileName", Toast.LENGTH_SHORT).show()
                     }
                     webViewClient = object : WebViewClient() {
                         @Deprecated("Deprecated in Java")
@@ -299,6 +331,73 @@ fun BrowserScreen(initialUrl: String = "https://duckduckgo.com") {
                 }
             },
             modifier = Modifier.fillMaxSize()
+        )
+    }
+
+    // Shields & Privacy Modal
+    if (showShieldsDialog) {
+        AlertDialog(
+            onDismissRequest = { showShieldsDialog = false },
+            title = { Text("Browser Shields & Protection") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("Cosmetic Ad Element Hiding", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold)
+                            Text("Injects CSS rules to hide leftover ad banners", style = MaterialTheme.typography.bodySmall)
+                        }
+                        Switch(
+                            checked = cosmeticAdHidingActive,
+                            onCheckedChange = { viewModel.toggleCosmeticAdHiding() }
+                        )
+                    }
+                    HorizontalDivider()
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("Third-Party Cookies Blocked", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold)
+                            Text("Enforced globally in WebView settings", style = MaterialTheme.typography.bodySmall)
+                        }
+                        Switch(checked = true, onCheckedChange = {}, enabled = false)
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showShieldsDialog = false }) { Text("Close") }
+            }
+        )
+    }
+
+    // Downloads Manager Dialog
+    if (showDownloadsDialog) {
+        AlertDialog(
+            onDismissRequest = { showDownloadsDialog = false },
+            title = { Text("Downloads Manager") },
+            text = {
+                if (downloads.isEmpty()) {
+                    Text("No file downloads recorded.")
+                } else {
+                    LazyColumn {
+                        items(downloads) { d ->
+                            Column(modifier = Modifier.fillMaxWidth().padding(8.dp)) {
+                                Text(d.fileName, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold)
+                                Text("${d.mimeType} • ${d.sizeBytes / 1024} KB", style = MaterialTheme.typography.bodySmall)
+                                Text(d.url, style = MaterialTheme.typography.labelSmall)
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showDownloadsDialog = false }) { Text("Close") }
+            }
         )
     }
 

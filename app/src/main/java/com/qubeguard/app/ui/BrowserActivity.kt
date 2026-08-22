@@ -3,11 +3,16 @@ package com.qubeguard.app.ui
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
+import android.view.View
+import android.view.ViewGroup
+import android.webkit.WebChromeClient
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import android.widget.FrameLayout
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -25,7 +30,9 @@ import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
@@ -34,7 +41,9 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.DropdownMenu
@@ -74,24 +83,77 @@ import dagger.hilt.android.AndroidEntryPoint
 
 @AndroidEntryPoint
 class BrowserActivity : ComponentActivity() {
+    private var customVideoView: View? = null
+    private var customVideoCallback: WebChromeClient.CustomViewCallback? = null
+    private var fullScreenContainer: FrameLayout? = null
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         val initialUrl = intent?.dataString ?: intent?.getStringExtra("url") ?: "https://duckduckgo.com"
+
+        fullScreenContainer = FrameLayout(this).apply {
+            layoutParams = FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.MATCH_PARENT
+            )
+            visibility = View.GONE
+        }
+
         setContent {
             QubeGuardTheme {
                 Surface(
                     modifier = Modifier.fillMaxSize(),
                     color = MaterialTheme.colorScheme.background
                 ) {
-                    BrowserScreen(initialUrl = initialUrl)
+                    Box(modifier = Modifier.fillMaxSize()) {
+                        BrowserScreen(
+                            initialUrl = initialUrl,
+                            onShowVideo = { view, callback ->
+                                customVideoView = view
+                                customVideoCallback = callback
+                                fullScreenContainer?.addView(view)
+                                fullScreenContainer?.visibility = View.VISIBLE
+                            },
+                            onHideVideo = {
+                                fullScreenContainer?.visibility = View.GONE
+                                fullScreenContainer?.removeAllViews()
+                                customVideoCallback?.onCustomViewHidden()
+                                customVideoView = null
+                                customVideoCallback = null
+                            }
+                        )
+
+                        AndroidView(
+                            factory = { fullScreenContainer!! },
+                            modifier = Modifier.fillMaxSize()
+                        )
+                    }
                 }
             }
+        }
+    }
+
+    @Deprecated("Deprecated in Java")
+    override fun onBackPressed() {
+        if (customVideoView != null) {
+            fullScreenContainer?.visibility = View.GONE
+            fullScreenContainer?.removeAllViews()
+            customVideoCallback?.onCustomViewHidden()
+            customVideoView = null
+            customVideoCallback = null
+        } else {
+            @Suppress("DEPRECATION")
+            super.onBackPressed()
         }
     }
 }
 
 @Composable
-fun BrowserScreen(initialUrl: String = "https://duckduckgo.com") {
+fun BrowserScreen(
+    initialUrl: String = "https://duckduckgo.com",
+    onShowVideo: ((View, WebChromeClient.CustomViewCallback) -> Unit)? = null,
+    onHideVideo: (() -> Unit)? = null
+) {
     val viewModel: BrowserViewModel = hiltViewModel()
     val context = LocalContext.current
     val tabs by viewModel.tabs.observeAsState(emptyList())
@@ -116,6 +178,19 @@ fun BrowserScreen(initialUrl: String = "https://duckduckgo.com") {
     var showShieldsDialog by remember { mutableStateOf(false) }
     var showQubeDialog by remember { mutableStateOf(false) }
     var showSearchEngineDialog by remember { mutableStateOf(false) }
+
+    // Video Download Prompt state
+    var detectedMediaUrl by remember { mutableStateOf<String?>(null) }
+    var detectedMediaMime by remember { mutableStateOf("") }
+    var showVideoDownloadDialog by remember { mutableStateOf(false) }
+
+    // Find in Page state
+    var showFindInPage by remember { mutableStateOf(false) }
+    var findQuery by remember { mutableStateOf("") }
+
+    // Reader Mode state
+    var isReaderModeActive by remember { mutableStateOf(false) }
+    var readerContentText by remember { mutableStateOf("") }
 
     val activeTab = tabs.find { it.id == activeTabId } ?: tabs.firstOrNull()
 
@@ -218,6 +293,23 @@ fun BrowserScreen(initialUrl: String = "https://duckduckgo.com") {
                                 }
                             )
                             DropdownMenuItem(
+                                text = { Text("Find in Page") },
+                                onClick = {
+                                    showFindInPage = true
+                                    showOverflowMenu = false
+                                }
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Reader Mode") },
+                                onClick = {
+                                    webView?.evaluateJavascript("(function(){ return document.body.innerText; })();") { text ->
+                                        readerContentText = text ?: "No article text found."
+                                        isReaderModeActive = true
+                                    }
+                                    showOverflowMenu = false
+                                }
+                            )
+                            DropdownMenuItem(
                                 text = { Text("Search Engine: $searchEngine") },
                                 onClick = {
                                     showSearchEngineDialog = true
@@ -287,6 +379,38 @@ fun BrowserScreen(initialUrl: String = "https://duckduckgo.com") {
                     }
                 }
 
+                // Find in Page Bar
+                if (showFindInPage) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 8.dp, vertical = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        OutlinedTextField(
+                            value = findQuery,
+                            onValueChange = {
+                                findQuery = it
+                                webView?.findAllAsync(it)
+                            },
+                            placeholder = { Text("Find on page...") },
+                            modifier = Modifier.weight(1f),
+                            singleLine = true,
+                            leadingIcon = { Icon(Icons.Default.Search, contentDescription = "Search") }
+                        )
+                        IconButton(onClick = { webView?.findNext(true) }) {
+                            Text("↓", fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                        }
+                        IconButton(onClick = {
+                            webView?.clearMatches()
+                            showFindInPage = false
+                            findQuery = ""
+                        }) {
+                            Icon(Icons.Default.Close, contentDescription = "Close Find")
+                        }
+                    }
+                }
+
                 // Page Loading Progress Bar
                 if (loadProgress in 1..99) {
                     LinearProgressIndicator(
@@ -297,40 +421,104 @@ fun BrowserScreen(initialUrl: String = "https://duckduckgo.com") {
             }
         }
 
-        // WebView
-        AndroidView(
-            factory = { ctx ->
-                SecureWebView(ctx).apply {
-                    selectedQube?.let { setQubeId(it.id) }
-                    setDesktopMode(isDesktopMode)
-                    isCosmeticAdHidingEnabled = cosmeticAdHidingActive
-                    onProgressChanged = { progress ->
-                        viewModel.setLoadProgress(progress)
+        // Reader Mode Overlay
+        if (isReaderModeActive) {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(MaterialTheme.colorScheme.surface)
+                    .padding(16.dp)
+                    .verticalScroll(rememberScrollState())
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text("Reader Mode", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                    IconButton(onClick = { isReaderModeActive = false }) {
+                        Icon(Icons.Default.Close, contentDescription = "Exit Reader Mode")
                     }
-                    onTitleReceived = { title ->
-                        viewModel.updateActiveTabUrl(url ?: "", title)
-                    }
-                    onDownloadTriggered = { downloadUrl, _, contentDisp, mime, len ->
-                        val fileName = Uri.parse(downloadUrl).lastPathSegment ?: "file"
-                        viewModel.addDownload(downloadUrl, fileName, len, mime)
-                        Toast.makeText(ctx, "Download started: $fileName", Toast.LENGTH_SHORT).show()
-                    }
-                    webViewClient = object : WebViewClient() {
-                        @Deprecated("Deprecated in Java")
-                        override fun shouldOverrideUrlLoading(view: WebView?, url: String?): Boolean {
-                            url?.let {
-                                this@apply.loadUrl(it)
-                                urlInput = it
-                                viewModel.updateActiveTabUrl(it)
-                            }
-                            return true
+                }
+                HorizontalDivider(Modifier.padding(vertical = 8.dp))
+                Text(readerContentText, style = MaterialTheme.typography.bodyLarge, lineHeight = 24.sp)
+            }
+        } else {
+            // WebView Container
+            AndroidView(
+                factory = { ctx ->
+                    SecureWebView(ctx).apply {
+                        selectedQube?.let { setQubeId(it.id) }
+                        setDesktopMode(isDesktopMode)
+                        isCosmeticAdHidingEnabled = cosmeticAdHidingActive
+                        onProgressChanged = { progress ->
+                            viewModel.setLoadProgress(progress)
                         }
+                        onTitleReceived = { title ->
+                            viewModel.updateActiveTabUrl(url ?: "", title)
+                        }
+                        onShowCustomViewListener = { view, callback ->
+                            onShowVideo?.invoke(view, callback)
+                        }
+                        onHideCustomViewListener = {
+                            onHideVideo?.invoke()
+                        }
+                        onMediaDetectedListener = { mediaUrl, mime ->
+                            detectedMediaUrl = mediaUrl
+                            detectedMediaMime = mime
+                            showVideoDownloadDialog = true
+                        }
+                        onDownloadTriggered = { downloadUrl, _, _, mime, len ->
+                            val fileName = Uri.parse(downloadUrl).lastPathSegment ?: "file"
+                            viewModel.addDownload(downloadUrl, fileName, len, mime)
+                            Toast.makeText(ctx, "Download started: $fileName", Toast.LENGTH_SHORT).show()
+                        }
+                        webViewClient = object : WebViewClient() {
+                            @Deprecated("Deprecated in Java")
+                            override fun shouldOverrideUrlLoading(view: WebView?, url: String?): Boolean {
+                                url?.let {
+                                    this@apply.loadUrl(it)
+                                    urlInput = it
+                                    viewModel.updateActiveTabUrl(it)
+                                }
+                                return true
+                            }
+                        }
+                        webView = this
+                        loadUrl(activeTab?.url ?: initialUrl)
                     }
-                    webView = this
-                    loadUrl(activeTab?.url ?: initialUrl)
+                },
+                modifier = Modifier.fillMaxSize()
+            )
+        }
+    }
+
+    // Video Download Dialog Prompt
+    if (showVideoDownloadDialog && detectedMediaUrl != null) {
+        AlertDialog(
+            onDismissRequest = { showVideoDownloadDialog = false },
+            title = { Text("Video / Media Detected") },
+            text = {
+                Column {
+                    Text("Found downloadable video resource:", style = MaterialTheme.typography.bodyMedium)
+                    Spacer(Modifier.height(4.dp))
+                    Text(detectedMediaUrl ?: "", style = MaterialTheme.typography.bodySmall, maxLines = 3)
                 }
             },
-            modifier = Modifier.fillMaxSize()
+            confirmButton = {
+                Button(onClick = {
+                    val url = detectedMediaUrl ?: ""
+                    val fileName = Uri.parse(url).lastPathSegment ?: "video.mp4"
+                    viewModel.addDownload(url, fileName, 0, detectedMediaMime)
+                    Toast.makeText(context, "Video download queued: $fileName", Toast.LENGTH_SHORT).show()
+                    showVideoDownloadDialog = false
+                }) {
+                    Text("Download Video")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showVideoDownloadDialog = false }) { Text("Cancel") }
+            }
         )
     }
 

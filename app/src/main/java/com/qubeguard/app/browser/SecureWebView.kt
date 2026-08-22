@@ -2,6 +2,7 @@ package com.qubeguard.app.browser
 
 import android.content.Context
 import android.util.AttributeSet
+import android.view.View
 import android.webkit.CookieManager
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceRequest
@@ -29,6 +30,9 @@ class SecureWebView @JvmOverloads constructor(
     var onProgressChanged: ((Int) -> Unit)? = null
     var onTitleReceived: ((String) -> Unit)? = null
     var onDownloadTriggered: ((url: String, userAgent: String, contentDisposition: String, mimeType: String, contentLength: Long) -> Unit)? = null
+    var onShowCustomViewListener: ((View, WebChromeClient.CustomViewCallback) -> Unit)? = null
+    var onHideCustomViewListener: (() -> Unit)? = null
+    var onMediaDetectedListener: ((mediaUrl: String, mimeType: String) -> Unit)? = null
 
     companion object {
         const val MOBILE_USER_AGENT = "Mozilla/5.0 (Linux; Android 10; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/100.0.0.0 Mobile Safari/537.36"
@@ -57,18 +61,27 @@ class SecureWebView @JvmOverloads constructor(
         settings.javaScriptEnabled = true
         settings.setGeolocationEnabled(false)
         settings.javaScriptCanOpenWindowsAutomatically = false
-        settings.domStorageEnabled = false
+        settings.domStorageEnabled = true
         settings.databaseEnabled = false
+        settings.mediaPlaybackRequiresUserGesture = false
         @Suppress("DEPRECATION")
         settings.saveFormData = false
         settings.textZoom = 100
         settings.userAgentString = MOBILE_USER_AGENT
 
-        webViewClient = SecureWebViewClient(deterministicBlocker, mlClassifier) {
-            if (isCosmeticAdHidingEnabled) {
-                evaluateJavascript(COSMETIC_AD_BLOCK_SCRIPT, null)
+        webViewClient = SecureWebViewClient(
+            deterministicBlocker = deterministicBlocker,
+            mlClassifier = mlClassifier,
+            onPageFinishedCallback = {
+                if (isCosmeticAdHidingEnabled) {
+                    evaluateJavascript(COSMETIC_AD_BLOCK_SCRIPT, null)
+                }
+            },
+            onMediaDetected = { url, mime ->
+                onMediaDetectedListener?.invoke(url, mime)
             }
-        }
+        )
+
         webChromeClient = object : WebChromeClient() {
             override fun onProgressChanged(view: WebView?, newProgress: Int) {
                 super.onProgressChanged(view, newProgress)
@@ -78,6 +91,18 @@ class SecureWebView @JvmOverloads constructor(
             override fun onReceivedTitle(view: WebView?, title: String?) {
                 super.onReceivedTitle(view, title)
                 title?.let { onTitleReceived?.invoke(it) }
+            }
+
+            override fun onShowCustomView(view: View?, callback: CustomViewCallback?) {
+                super.onShowCustomView(view, callback)
+                if (view != null && callback != null) {
+                    onShowCustomViewListener?.invoke(view, callback)
+                }
+            }
+
+            override fun onHideCustomView() {
+                super.onHideCustomView()
+                onHideCustomViewListener?.invoke()
             }
         }
 
@@ -111,7 +136,8 @@ class SecureWebView @JvmOverloads constructor(
     class SecureWebViewClient(
         private val deterministicBlocker: DeterministicBlocker,
         private val mlClassifier: MLClassifier,
-        private val onPageFinishedCallback: () -> Unit
+        private val onPageFinishedCallback: () -> Unit,
+        private val onMediaDetected: (String, String) -> Unit
     ) : WebViewClient() {
         override fun shouldInterceptRequest(
             view: WebView?,
@@ -125,6 +151,18 @@ class SecureWebView @JvmOverloads constructor(
 
             if (mlClassifier.isModelLoaded() && runBlocking { mlClassifier.isBlocked(url) }) {
                 return createBlockedResponse()
+            }
+
+            // Media URL detector (.mp4, .webm, .mkv, .mp3, .m4a)
+            val lowerUrl = url.lowercase()
+            if (lowerUrl.contains(".mp4") || lowerUrl.contains(".webm") || lowerUrl.contains(".m3u8") || lowerUrl.contains(".m4a")) {
+                val mime = when {
+                    lowerUrl.contains(".mp4") -> "video/mp4"
+                    lowerUrl.contains(".webm") -> "video/webm"
+                    lowerUrl.contains(".m4a") || lowerUrl.contains(".mp3") -> "audio/mpeg"
+                    else -> "video/any"
+                }
+                onMediaDetected(url, mime)
             }
 
             return null

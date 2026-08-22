@@ -65,7 +65,9 @@ fun SettingsScreen(
     onNavigateToQubes: (() -> Unit)? = null,
     onNavigateToAi: (() -> Unit)? = null,
     onNavigateToFeedback: (() -> Unit)? = null,
-    onNavigateToDnsLogs: (() -> Unit)? = null
+    onNavigateToDnsLogs: (() -> Unit)? = null,
+    onNavigateToBypass: (() -> Unit)? = null,
+    onNavigateToCustomRules: (() -> Unit)? = null
 ) {
     val viewModel: SettingsViewModel = hiltViewModel()
     val context = LocalContext.current
@@ -74,8 +76,10 @@ fun SettingsScreen(
     val aiEnabled by viewModel.isMlEnabled.observeAsState(false)
     val autoUpdate by viewModel.isAutoModelUpdateEnabled.observeAsState(false)
     val upstreamDns by viewModel.upstreamDns.observeAsState("1.1.1.1")
+    val themeMode by viewModel.themeMode.observeAsState("system")
 
     var showDnsMenu by remember { mutableStateOf(false) }
+    var showThemeMenu by remember { mutableStateOf(false) }
     var showExportDialog by remember { mutableStateOf(false) }
     var showImportDialog by remember { mutableStateOf(false) }
     var exportedJsonText by remember { mutableStateOf("") }
@@ -88,6 +92,12 @@ fun SettingsScreen(
         "8.8.8.8" to "Google DNS (8.8.8.8)"
     )
 
+    val themeOptions = mapOf(
+        "system" to "System Default",
+        "dark" to "Dark Theme",
+        "light" to "Light Theme"
+    )
+
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -97,6 +107,26 @@ fun SettingsScreen(
     ) {
         Text("Settings", style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.Bold)
         Text("Privacy controls, network DNS, and local protection", style = MaterialTheme.typography.bodyMedium)
+
+        SettingsCard("App Theme") {
+            Text("Interface Theme", style = MaterialTheme.typography.labelLarge)
+            Box {
+                OutlinedButton(onClick = { showThemeMenu = true }) {
+                    Text(themeOptions[themeMode] ?: "System Default")
+                }
+                DropdownMenu(expanded = showThemeMenu, onDismissRequest = { showThemeMenu = false }) {
+                    themeOptions.forEach { (mode, label) ->
+                        DropdownMenuItem(
+                            text = { Text(label) },
+                            onClick = {
+                                viewModel.setThemeMode(mode)
+                                showThemeMenu = false
+                            }
+                        )
+                    }
+                }
+            }
+        }
 
         SettingsCard("Protection") {
             SettingSwitch("AI malicious-URL protection", "Optional local Transformer; protection continues without it.", aiEnabled) {
@@ -108,7 +138,7 @@ fun SettingsScreen(
             }
         }
 
-        SettingsCard("Network & Upstream DNS") {
+        SettingsCard("Network, VPN & Split Tunneling") {
             Text("Selected Upstream DNS", style = MaterialTheme.typography.labelLarge)
             Box {
                 OutlinedButton(onClick = { showDnsMenu = true }) {
@@ -126,18 +156,26 @@ fun SettingsScreen(
                     }
                 }
             }
-            if (onNavigateToDnsLogs != null) {
-                Spacer(Modifier.height(4.dp))
-                Button(onClick = onNavigateToDnsLogs) { Text("View DNS Network Logs") }
+            Spacer(Modifier.height(4.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                if (onNavigateToDnsLogs != null) {
+                    Button(onClick = onNavigateToDnsLogs) { Text("View DNS Logs") }
+                }
+                if (onNavigateToBypass != null) {
+                    OutlinedButton(onClick = onNavigateToBypass) { Text("Per-App Split Tunneling") }
+                }
             }
         }
 
-        SettingsCard("Blocklists & Allowlist") {
-            Text("Manage deterministic blocking sources and custom allowed domains.", style = MaterialTheme.typography.bodyMedium)
+        SettingsCard("Blocklists, Allowlist & Rules") {
+            Text("Manage deterministic blocking sources, custom allowed domains, and user rules.", style = MaterialTheme.typography.bodyMedium)
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Button(onClick = { onNavigateToBlocklists?.invoke() }) { Text("Blocklists") }
                 if (onNavigateToAllowlist != null) {
                     OutlinedButton(onClick = onNavigateToAllowlist) { Text("Allowlist") }
+                }
+                if (onNavigateToCustomRules != null) {
+                    OutlinedButton(onClick = onNavigateToCustomRules) { Text("User Rules") }
                 }
             }
         }

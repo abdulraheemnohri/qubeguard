@@ -22,7 +22,7 @@ object BlocklistModule {
             context,
             BlocklistDatabase::class.java,
             "blocklist_database"
-        ).build()
+        ).fallbackToDestructiveMigration().build()
     }
 
     @Provides

@@ -81,9 +81,11 @@ fun QubeGuardNavHost(modifier: Modifier = Modifier) {
             composable(NavGraph.SETTINGS) {
                 SettingsScreen(
                     onNavigateToBlocklists = { navController.navigate(NavGraph.BLOCKLIST_SETTINGS) },
+                    onNavigateToAllowlist = { navController.navigate(NavGraph.ALLOWLIST_SETTINGS) },
                     onNavigateToQubes = { navController.navigate(NavGraph.QUBE_MANAGEMENT) },
                     onNavigateToAi = { navController.navigate(NavGraph.ML_SETTINGS) },
-                    onNavigateToFeedback = { navController.navigate(NavGraph.FEEDBACK_SETTINGS) }
+                    onNavigateToFeedback = { navController.navigate(NavGraph.FEEDBACK_SETTINGS) },
+                    onNavigateToDnsLogs = { navController.navigate(NavGraph.DNS_LOGS) }
                 )
             }
             composable(NavGraph.BLOCK_PAGE) {
@@ -97,6 +99,12 @@ fun QubeGuardNavHost(modifier: Modifier = Modifier) {
             }
             composable(NavGraph.BLOCKLIST_SETTINGS) {
                 BlocklistSettingsScreen()
+            }
+            composable(NavGraph.ALLOWLIST_SETTINGS) {
+                AllowlistSettingsScreen()
+            }
+            composable(NavGraph.DNS_LOGS) {
+                DnsLogScreen()
             }
             composable(NavGraph.FEEDBACK_SETTINGS) {
                 FeedbackSettingsScreen()

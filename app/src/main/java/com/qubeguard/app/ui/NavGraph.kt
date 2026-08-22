@@ -13,4 +13,6 @@ object NavGraph {
     const val FEEDBACK_SETTINGS = "feedback_settings"
     const val ML_SETTINGS = "ml_settings"
     const val QUBE_MANAGEMENT = "qube_management"
+    const val ALLOWLIST_SETTINGS = "allowlist_settings"
+    const val DNS_LOGS = "dns_logs"
 }

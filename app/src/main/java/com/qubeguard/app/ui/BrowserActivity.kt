@@ -1,10 +1,12 @@
 package com.qubeguard.app.ui
 
+import android.content.Intent
 import android.os.Bundle
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -17,28 +19,31 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material.icons.filled.Search
-import androidx.compose.material.icons.filled.Star
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
 import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -51,9 +56,13 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.qubeguard.app.browser.SecureWebView
@@ -81,6 +90,7 @@ class BrowserActivity : ComponentActivity() {
 @Composable
 fun BrowserScreen(initialUrl: String = "https://duckduckgo.com") {
     val viewModel: BrowserViewModel = hiltViewModel()
+    val context = LocalContext.current
     val tabs by viewModel.tabs.observeAsState(emptyList())
     val activeTabId by viewModel.activeTabId.observeAsState("")
     val isDesktopMode by viewModel.isDesktopMode.observeAsState(false)
@@ -93,10 +103,12 @@ fun BrowserScreen(initialUrl: String = "https://duckduckgo.com") {
 
     var urlInput by remember { mutableStateOf(initialUrl) }
     var webView: SecureWebView? by remember { mutableStateOf(null) }
-    var showQubeDropdown by remember { mutableStateOf(false) }
-    var showEngineDropdown by remember { mutableStateOf(false) }
+    var showOverflowMenu by remember { mutableStateOf(false) }
+    var showTabSwitcherDialog by remember { mutableStateOf(false) }
     var showBookmarksDialog by remember { mutableStateOf(false) }
     var showHistoryDialog by remember { mutableStateOf(false) }
+    var showQubeDialog by remember { mutableStateOf(false) }
+    var showSearchEngineDialog by remember { mutableStateOf(false) }
 
     val activeTab = tabs.find { it.id == activeTabId } ?: tabs.firstOrNull()
 
@@ -111,167 +123,152 @@ fun BrowserScreen(initialUrl: String = "https://duckduckgo.com") {
     }
 
     Column(modifier = Modifier.fillMaxSize()) {
-        // Navigation, Qube & Tabs bar
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 8.dp, vertical = 4.dp),
-            verticalAlignment = Alignment.CenterVertically
+        // Chrome-Style Top Action Bar (Omnibox, Lock, Tab Badge, Overflow Menu)
+        Surface(
+            tonalElevation = 3.dp,
+            modifier = Modifier.fillMaxWidth()
         ) {
-            IconButton(onClick = { webView?.goBack() }) {
-                Icon(imageVector = Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
-            }
-
-            IconButton(onClick = { webView?.goForward() }) {
-                Icon(imageVector = Icons.AutoMirrored.Filled.ArrowForward, contentDescription = "Forward")
-            }
-
-            IconButton(onClick = { webView?.reload() }) {
-                Icon(imageVector = Icons.Default.Refresh, contentDescription = "Refresh")
-            }
-
-            // Search Engine selector
-            Box {
-                OutlinedButton(onClick = { showEngineDropdown = true }) {
-                    Icon(imageVector = Icons.Default.Search, contentDescription = "Engine")
-                    Spacer(Modifier.width(4.dp))
-                    Text(searchEngine)
-                }
-                DropdownMenu(expanded = showEngineDropdown, onDismissRequest = { showEngineDropdown = false }) {
-                    listOf("DuckDuckGo", "StartPage", "Google", "Bing", "Ecosia").forEach { engine ->
-                        DropdownMenuItem(
-                            text = { Text(engine) },
-                            onClick = {
-                                viewModel.setSearchEngine(engine)
-                                showEngineDropdown = false
-                            }
-                        )
-                    }
-                }
-            }
-
-            Spacer(Modifier.weight(1f))
-
-            // Qube profile dropdown selector
-            Box {
-                OutlinedButton(onClick = { showQubeDropdown = true }) {
-                    Text(selectedQube?.name ?: "Default")
-                }
-                DropdownMenu(expanded = showQubeDropdown, onDismissRequest = { showQubeDropdown = false }) {
-                    qubes.forEach { qube ->
-                        DropdownMenuItem(
-                            text = { Text(qube.name + if (qube.isIncognito) " (Incognito)" else "") },
-                            onClick = {
-                                viewModel.selectQube(qube)
-                                showQubeDropdown = false
-                            }
-                        )
-                    }
-                }
-            }
-        }
-
-        // Tabs bar
-        LazyRow(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 8.dp, vertical = 2.dp),
-            horizontalArrangement = Arrangement.spacedBy(6.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            items(tabs) { tab ->
-                val isSelected = tab.id == activeTabId
-                Card(
-                    modifier = Modifier.clickable {
-                        viewModel.switchTab(tab.id)
-                        urlInput = tab.url
-                        webView?.loadUrl(tab.url)
-                    }
+            Column {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 8.dp, vertical = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Row(
-                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
-                        verticalAlignment = Alignment.CenterVertically
+                    IconButton(onClick = { webView?.goBack() }) {
+                        Icon(imageVector = Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                    }
+
+                    // Chrome-Style Pill Omnibox
+                    OutlinedTextField(
+                        value = urlInput,
+                        onValueChange = { urlInput = it },
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(52.dp),
+                        shape = RoundedCornerShape(26.dp),
+                        singleLine = true,
+                        leadingIcon = {
+                            Icon(
+                                imageVector = Icons.Default.Lock,
+                                contentDescription = "Secure",
+                                tint = if (urlInput.startsWith("https://")) MaterialTheme.colorScheme.primary else Color.Gray
+                            )
+                        },
+                        trailingIcon = {
+                            IconButton(onClick = {
+                                val formatted = viewModel.formatSearchOrUrl(urlInput)
+                                urlInput = formatted
+                                viewModel.updateActiveTabUrl(formatted)
+                                webView?.loadUrl(formatted)
+                            }) {
+                                Icon(imageVector = Icons.Default.Refresh, contentDescription = "Reload")
+                            }
+                        },
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = MaterialTheme.colorScheme.primary,
+                            unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant
+                        )
+                    )
+
+                    Spacer(Modifier.width(6.dp))
+
+                    // Chrome-Style Tab Badge Button [ N ]
+                    Box(
+                        modifier = Modifier
+                            .width(36.dp)
+                            .height(36.dp)
+                            .border(1.5.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(8.dp))
+                            .clickable { showTabSwitcherDialog = true },
+                        contentAlignment = Alignment.Center
                     ) {
                         Text(
-                            text = tab.title.take(15) + if (tab.title.length > 15) "..." else "",
-                            style = MaterialTheme.typography.bodySmall,
-                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
+                            text = tabs.size.toString(),
+                            style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
+                            textAlign = TextAlign.Center
                         )
-                        Spacer(Modifier.width(4.dp))
-                        IconButton(
-                            modifier = Modifier.height(18.dp).width(18.dp),
-                            onClick = { viewModel.closeTab(tab.id) }
+                    }
+
+                    // 3-Dot Chrome Overflow Menu
+                    Box {
+                        IconButton(onClick = { showOverflowMenu = true }) {
+                            Icon(imageVector = Icons.Default.MoreVert, contentDescription = "Menu")
+                        }
+                        DropdownMenu(
+                            expanded = showOverflowMenu,
+                            onDismissRequest = { showOverflowMenu = false }
                         ) {
-                            Icon(imageVector = Icons.Default.Close, contentDescription = "Close tab")
+                            DropdownMenuItem(
+                                text = { Text("New tab") },
+                                onClick = {
+                                    viewModel.addNewTab()
+                                    showOverflowMenu = false
+                                }
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Search Engine: $searchEngine") },
+                                onClick = {
+                                    showSearchEngineDialog = true
+                                    showOverflowMenu = false
+                                }
+                            )
+                            DropdownMenuItem(
+                                text = { Text("New Qube profile...") },
+                                onClick = {
+                                    showQubeDialog = true
+                                    showOverflowMenu = false
+                                }
+                            )
+                            HorizontalDivider()
+                            DropdownMenuItem(
+                                text = { Text(if (isDesktopMode) "✓ Desktop site" else "Desktop site") },
+                                onClick = {
+                                    viewModel.toggleDesktopMode()
+                                    showOverflowMenu = false
+                                }
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Add Bookmark") },
+                                onClick = {
+                                    val targetUrl = webView?.url ?: urlInput
+                                    viewModel.addBookmark(webView?.title ?: targetUrl, targetUrl)
+                                    showOverflowMenu = false
+                                }
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Bookmarks (${bookmarks.size})") },
+                                onClick = {
+                                    showBookmarksDialog = true
+                                    showOverflowMenu = false
+                                }
+                            )
+                            DropdownMenuItem(
+                                text = { Text("History (${history.size})") },
+                                onClick = {
+                                    showHistoryDialog = true
+                                    showOverflowMenu = false
+                                }
+                            )
+                            HorizontalDivider()
+                            DropdownMenuItem(
+                                text = { Text("Settings") },
+                                onClick = {
+                                    context.startActivity(Intent(context, SettingsActivity::class.java))
+                                    showOverflowMenu = false
+                                }
+                            )
                         }
                     }
                 }
-            }
 
-            item {
-                IconButton(onClick = { viewModel.addNewTab() }) {
-                    Icon(imageVector = Icons.Default.Add, contentDescription = "New tab")
+                // Page Loading Progress Bar
+                if (loadProgress in 1..99) {
+                    LinearProgressIndicator(
+                        progress = { loadProgress / 100f },
+                        modifier = Modifier.fillMaxWidth()
+                    )
                 }
             }
-        }
-
-        // Address Input Bar & Action Buttons
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 8.dp, vertical = 4.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            OutlinedTextField(
-                value = urlInput,
-                onValueChange = { urlInput = it },
-                modifier = Modifier.weight(1f),
-                label = { Text("Search or type URL") },
-                singleLine = true
-            )
-
-            Spacer(Modifier.width(6.dp))
-
-            Button(onClick = {
-                val formatted = viewModel.formatSearchOrUrl(urlInput)
-                urlInput = formatted
-                viewModel.updateActiveTabUrl(formatted)
-                webView?.loadUrl(formatted)
-            }) {
-                Text("Go")
-            }
-
-            IconButton(onClick = {
-                val targetUrl = webView?.url ?: urlInput
-                if (targetUrl.isNotBlank()) {
-                    viewModel.addBookmark(webView?.title ?: targetUrl, targetUrl)
-                }
-            }) {
-                Icon(imageVector = Icons.Default.Star, contentDescription = "Bookmark")
-            }
-
-            OutlinedButton(onClick = { viewModel.toggleDesktopMode() }) {
-                Text(if (isDesktopMode) "Desktop" else "Mobile")
-            }
-        }
-
-        // Page Progress Indicator
-        if (loadProgress in 1..99) {
-            LinearProgressIndicator(
-                progress = { loadProgress / 100f },
-                modifier = Modifier.fillMaxWidth()
-            )
-        }
-
-        // Action Toolbar (Bookmarks & History buttons)
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 8.dp, vertical = 2.dp),
-            horizontalArrangement = Arrangement.SpaceBetween
-        ) {
-            TextButton(onClick = { showBookmarksDialog = true }) { Text("Bookmarks (${bookmarks.size})") }
-            TextButton(onClick = { showHistoryDialog = true }) { Text("History (${history.size})") }
         }
 
         // WebView
@@ -302,6 +299,139 @@ fun BrowserScreen(initialUrl: String = "https://duckduckgo.com") {
                 }
             },
             modifier = Modifier.fillMaxSize()
+        )
+    }
+
+    // Search Engine Dialog
+    if (showSearchEngineDialog) {
+        AlertDialog(
+            onDismissRequest = { showSearchEngineDialog = false },
+            title = { Text("Choose Search Engine") },
+            text = {
+                Column {
+                    listOf("DuckDuckGo", "StartPage", "Google", "Bing", "Ecosia").forEach { engine ->
+                        TextButton(
+                            onClick = {
+                                viewModel.setSearchEngine(engine)
+                                showSearchEngineDialog = false
+                            },
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text(engine, fontWeight = if (engine == searchEngine) FontWeight.Bold else FontWeight.Normal)
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showSearchEngineDialog = false }) { Text("Cancel") }
+            }
+        )
+    }
+
+    // Chrome Grid Tab Switcher Modal
+    if (showTabSwitcherDialog) {
+        AlertDialog(
+            onDismissRequest = { showTabSwitcherDialog = false },
+            title = {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text("Tabs (${tabs.size})", fontWeight = FontWeight.Bold)
+                    IconButton(onClick = {
+                        viewModel.addNewTab()
+                        showTabSwitcherDialog = false
+                    }) {
+                        Icon(imageVector = Icons.Default.Add, contentDescription = "New tab")
+                    }
+                }
+            },
+            text = {
+                LazyVerticalGrid(
+                    columns = GridCells.Fixed(2),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    items(tabs) { tab ->
+                        val isSelected = tab.id == activeTabId
+                        Card(
+                            colors = CardDefaults.cardColors(
+                                containerColor = if (isSelected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant
+                            ),
+                            modifier = Modifier.clickable {
+                                viewModel.switchTab(tab.id)
+                                urlInput = tab.url
+                                webView?.loadUrl(tab.url)
+                                showTabSwitcherDialog = false
+                            }
+                        ) {
+                            Column(modifier = Modifier.padding(10.dp)) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(
+                                        text = tab.title.take(12),
+                                        style = MaterialTheme.typography.labelLarge,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                    IconButton(
+                                        modifier = Modifier.height(20.dp).width(20.dp),
+                                        onClick = { viewModel.closeTab(tab.id) }
+                                    ) {
+                                        Icon(imageVector = Icons.Default.Close, contentDescription = "Close")
+                                    }
+                                }
+                                Spacer(Modifier.height(4.dp))
+                                Text(
+                                    text = tab.url,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    fontSize = 11.sp,
+                                    maxLines = 2
+                                )
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showTabSwitcherDialog = false }) { Text("Done") }
+            }
+        )
+    }
+
+    // Qube Profile Switcher Dialog
+    if (showQubeDialog) {
+        AlertDialog(
+            onDismissRequest = { showQubeDialog = false },
+            title = { Text("Select Qube Profile") },
+            text = {
+                LazyColumn {
+                    items(qubes) { q ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    viewModel.selectQube(q)
+                                    showQubeDialog = false
+                                }
+                                .padding(12.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(q.name, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold)
+                            if (q.isIncognito) {
+                                Spacer(Modifier.width(6.dp))
+                                Text("(Incognito)", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.secondary)
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showQubeDialog = false }) { Text("Close") }
+            }
         )
     }
 

@@ -29,6 +29,7 @@ class SecureWebView @JvmOverloads constructor(
     var isCosmeticAdHidingEnabled: Boolean = true
     var onProgressChanged: ((Int) -> Unit)? = null
     var onTitleReceived: ((String) -> Unit)? = null
+    var onUrlLoadingListener: ((String) -> Unit)? = null
     var onDownloadTriggered: ((url: String, userAgent: String, contentDisposition: String, mimeType: String, contentLength: Long) -> Unit)? = null
     var onShowCustomViewListener: ((View, WebChromeClient.CustomViewCallback) -> Unit)? = null
     var onHideCustomViewListener: (() -> Unit)? = null
@@ -79,6 +80,9 @@ class SecureWebView @JvmOverloads constructor(
             },
             onMediaDetected = { url, mime ->
                 onMediaDetectedListener?.invoke(url, mime)
+            },
+            onUrlLoading = { url ->
+                onUrlLoadingListener?.invoke(url)
             }
         )
 
@@ -149,8 +153,19 @@ class SecureWebView @JvmOverloads constructor(
         private val deterministicBlocker: DeterministicBlocker,
         private val mlClassifier: MLClassifier,
         private val onPageFinishedCallback: () -> Unit,
-        private val onMediaDetected: (String, String) -> Unit
+        private val onMediaDetected: (String, String) -> Unit,
+        private val onUrlLoading: (String) -> Unit
     ) : WebViewClient() {
+
+        @Deprecated("Deprecated in Java")
+        override fun shouldOverrideUrlLoading(view: WebView?, url: String?): Boolean {
+            if (url != null) {
+                onUrlLoading(url)
+                view?.loadUrl(url)
+            }
+            return true
+        }
+
         override fun shouldInterceptRequest(
             view: WebView?,
             request: WebResourceRequest?

@@ -17,6 +17,7 @@ import com.qubeguard.app.data.blocklist.BlocklistFetcherWorker
 import com.qubeguard.app.data.blocklist.BlocklistRule
 import com.qubeguard.app.data.blocklist.BlocklistSource
 import com.qubeguard.app.data.blocklist.DnsLogEntity
+import com.qubeguard.app.data.blocklist.LocalDnsRecordEntity
 import com.qubeguard.app.ml.MLClassifier
 import com.qubeguard.app.ml.ModelDownloader
 import com.qubeguard.app.policy.FeedbackCollector
@@ -51,6 +52,27 @@ class SettingsViewModel @Inject constructor(
     private val _upstreamDns = MutableLiveData(preferences.getString(KEY_UPSTREAM_DNS, "1.1.1.1") ?: "1.1.1.1")
     val upstreamDns: LiveData<String> = _upstreamDns
 
+    private val _themeMode = MutableLiveData(preferences.getString(KEY_THEME_MODE, "system") ?: "system")
+    val themeMode: LiveData<String> = _themeMode
+
+    private val _sinkholeMode = MutableLiveData(preferences.getString(KEY_SINKHOLE_MODE, "NXDOMAIN") ?: "NXDOMAIN")
+    val sinkholeMode: LiveData<String> = _sinkholeMode
+
+    private val _dnssecEnabled = MutableLiveData(preferences.getBoolean(KEY_DNSSEC_ENABLED, false))
+    val dnssecEnabled: LiveData<Boolean> = _dnssecEnabled
+
+    private val _conditionalForwardingEnabled = MutableLiveData(preferences.getBoolean(KEY_CONDITIONAL_ENABLED, false))
+    val conditionalForwardingEnabled: LiveData<Boolean> = _conditionalForwardingEnabled
+
+    private val _conditionalDomain = MutableLiveData(preferences.getString(KEY_CONDITIONAL_DOMAIN, "home.arpa") ?: "home.arpa")
+    val conditionalDomain: LiveData<String> = _conditionalDomain
+
+    private val _conditionalTargetIp = MutableLiveData(preferences.getString(KEY_CONDITIONAL_IP, "192.168.1.1") ?: "192.168.1.1")
+    val conditionalTargetIp: LiveData<String> = _conditionalTargetIp
+
+    private val _bypassPackages = MutableLiveData(preferences.getStringSet(KEY_BYPASS_PACKAGES, emptySet()) ?: emptySet())
+    val bypassPackages: LiveData<Set<String>> = _bypassPackages
+
     private val _falsePositiveCount = MutableLiveData(0)
     val falsePositiveCount: LiveData<Int> = _falsePositiveCount
     private val _allowAlwaysCount = MutableLiveData(0)
@@ -61,12 +83,16 @@ class SettingsViewModel @Inject constructor(
     private val _dnsLogs = MutableLiveData<List<DnsLogEntity>>(emptyList())
     val dnsLogs: LiveData<List<DnsLogEntity>> = _dnsLogs
 
+    private val _localDnsRecords = MutableLiveData<List<LocalDnsRecordEntity>>(emptyList())
+    val localDnsRecords: LiveData<List<LocalDnsRecordEntity>> = _localDnsRecords
+
     init {
         loadBlocklistSources()
         loadQubeProfiles()
         loadFeedbackStats()
         loadTotalRuleCount()
         loadDnsLogs()
+        loadLocalDnsRecords()
     }
 
     fun loadBlocklistSources() { viewModelScope.launch { _blocklistSources.value = blocklistDao.getAllSources() } }
@@ -96,9 +122,71 @@ class SettingsViewModel @Inject constructor(
         }
     }
 
+    fun loadLocalDnsRecords() {
+        viewModelScope.launch {
+            _localDnsRecords.value = blocklistDao.getAllLocalDnsRecords()
+        }
+    }
+
+    fun addLocalDnsRecord(domain: String, ipAddress: String, recordType: String = "A", description: String = "") {
+        viewModelScope.launch {
+            val id = "dns_rec_" + sha256(domain + ipAddress).substring(0, 10)
+            val record = LocalDnsRecordEntity(
+                id = id,
+                domain = domain.trim().lowercase(),
+                ipAddress = ipAddress.trim(),
+                recordType = recordType,
+                enabled = true,
+                description = description
+            )
+            blocklistDao.insertLocalDnsRecord(record)
+            loadLocalDnsRecords()
+        }
+    }
+
+    fun deleteLocalDnsRecord(id: String) {
+        viewModelScope.launch {
+            blocklistDao.deleteLocalDnsRecord(id)
+            loadLocalDnsRecords()
+        }
+    }
+
+    fun setSinkholeMode(mode: String) {
+        preferences.edit().putString(KEY_SINKHOLE_MODE, mode).apply()
+        _sinkholeMode.value = mode
+    }
+
+    fun setDnssecEnabled(enabled: Boolean) {
+        preferences.edit().putBoolean(KEY_DNSSEC_ENABLED, enabled).apply()
+        _dnssecEnabled.value = enabled
+    }
+
+    fun setConditionalForwarding(enabled: Boolean, domain: String = "home.arpa", targetIp: String = "192.168.1.1") {
+        preferences.edit()
+            .putBoolean(KEY_CONDITIONAL_ENABLED, enabled)
+            .putString(KEY_CONDITIONAL_DOMAIN, domain)
+            .putString(KEY_CONDITIONAL_IP, targetIp)
+            .apply()
+        _conditionalForwardingEnabled.value = enabled
+        _conditionalDomain.value = domain
+        _conditionalTargetIp.value = targetIp
+    }
+
     fun setUpstreamDns(dnsIp: String) {
         preferences.edit().putString(KEY_UPSTREAM_DNS, dnsIp).apply()
         _upstreamDns.value = dnsIp
+    }
+
+    fun setThemeMode(mode: String) {
+        preferences.edit().putString(KEY_THEME_MODE, mode).apply()
+        _themeMode.value = mode
+    }
+
+    fun setAppBypass(packageName: String, bypass: Boolean) {
+        val current = (_bypassPackages.value ?: emptySet()).toMutableSet()
+        if (bypass) current.add(packageName) else current.remove(packageName)
+        preferences.edit().putStringSet(KEY_BYPASS_PACKAGES, current).apply()
+        _bypassPackages.value = current
     }
 
     fun setBlocklistSourceEnabled(sourceId: String, enabled: Boolean) {
@@ -155,8 +243,15 @@ class SettingsViewModel @Inject constructor(
     suspend fun exportSettingsJson(): String {
         val sources = blocklistDao.getAllSources()
         val allowlist = blocklistDao.getAllAllowlistRules()
+        val localDns = blocklistDao.getAllLocalDnsRecords()
         val json = JSONObject().apply {
             put("upstreamDns", _upstreamDns.value)
+            put("themeMode", _themeMode.value)
+            put("sinkholeMode", _sinkholeMode.value)
+            put("dnssecEnabled", _dnssecEnabled.value)
+            put("conditionalEnabled", _conditionalForwardingEnabled.value)
+            put("conditionalDomain", _conditionalDomain.value)
+            put("conditionalIp", _conditionalTargetIp.value)
             put("aiEnabled", _isMlEnabled.value)
             put("sources", JSONArray().apply {
                 sources.filter { it.id.startsWith("custom_") }.forEach { s ->
@@ -173,6 +268,19 @@ class SettingsViewModel @Inject constructor(
                     put(r.rule)
                 }
             })
+            put("localDns", JSONArray().apply {
+                localDns.forEach { r ->
+                    put(JSONObject().apply {
+                        put("domain", r.domain)
+                        put("ipAddress", r.ipAddress)
+                        put("recordType", r.recordType)
+                        put("description", r.description)
+                    })
+                }
+            })
+            put("bypassPackages", JSONArray().apply {
+                _bypassPackages.value?.forEach { put(it) }
+            })
         }
         return json.toString(2)
     }
@@ -182,6 +290,20 @@ class SettingsViewModel @Inject constructor(
             val json = JSONObject(jsonStr)
             val dns = json.optString("upstreamDns", "1.1.1.1")
             setUpstreamDns(dns)
+
+            val theme = json.optString("themeMode", "system")
+            setThemeMode(theme)
+
+            val sinkhole = json.optString("sinkholeMode", "NXDOMAIN")
+            setSinkholeMode(sinkhole)
+
+            val dnssec = json.optBoolean("dnssecEnabled", false)
+            setDnssecEnabled(dnssec)
+
+            val condEnabled = json.optBoolean("conditionalEnabled", false)
+            val condDomain = json.optString("conditionalDomain", "home.arpa")
+            val condIp = json.optString("conditionalIp", "192.168.1.1")
+            setConditionalForwarding(condEnabled, condDomain, condIp)
 
             val sourcesArr = json.optJSONArray("sources")
             if (sourcesArr != null) {
@@ -214,6 +336,29 @@ class SettingsViewModel @Inject constructor(
                         )
                     )
                 }
+            }
+
+            val localDnsArr = json.optJSONArray("localDns")
+            if (localDnsArr != null) {
+                for (i in 0 until localDnsArr.length()) {
+                    val recObj = localDnsArr.getJSONObject(i)
+                    addLocalDnsRecord(
+                        domain = recObj.getString("domain"),
+                        ipAddress = recObj.getString("ipAddress"),
+                        recordType = recObj.optString("recordType", "A"),
+                        description = recObj.optString("description", "")
+                    )
+                }
+            }
+
+            val bypassArr = json.optJSONArray("bypassPackages")
+            if (bypassArr != null) {
+                val set = mutableSetOf<String>()
+                for (i in 0 until bypassArr.length()) {
+                    set.add(bypassArr.getString(i))
+                }
+                preferences.edit().putStringSet(KEY_BYPASS_PACKAGES, set).apply()
+                _bypassPackages.value = set
             }
             true
         } catch (_: Exception) {
@@ -273,5 +418,12 @@ class SettingsViewModel @Inject constructor(
         private const val KEY_AUTO_UPDATE = "ai_auto_update"
         private const val KEY_TELEMETRY = "telemetry_enabled"
         const val KEY_UPSTREAM_DNS = "upstream_dns_ip"
+        const val KEY_BYPASS_PACKAGES = "bypass_packages"
+        const val KEY_THEME_MODE = "app_theme_mode"
+        const val KEY_SINKHOLE_MODE = "pihole_sinkhole_mode"
+        const val KEY_DNSSEC_ENABLED = "pihole_dnssec_enabled"
+        const val KEY_CONDITIONAL_ENABLED = "pihole_conditional_enabled"
+        const val KEY_CONDITIONAL_DOMAIN = "pihole_conditional_domain"
+        const val KEY_CONDITIONAL_IP = "pihole_conditional_ip"
     }
 }

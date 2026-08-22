@@ -78,6 +78,22 @@ interface BlocklistDao {
     """)
     suspend fun getMatchingAllowlistRule(domain: String): BlocklistRule?
 
+    // Local DNS Custom Records (Pi-hole style)
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertLocalDnsRecord(record: LocalDnsRecordEntity)
+
+    @Query("SELECT * FROM local_dns_records WHERE enabled = 1")
+    suspend fun getEnabledLocalDnsRecords(): List<LocalDnsRecordEntity>
+
+    @Query("SELECT * FROM local_dns_records")
+    suspend fun getAllLocalDnsRecords(): List<LocalDnsRecordEntity>
+
+    @Query("SELECT * FROM local_dns_records WHERE domain = :domain AND enabled = 1 LIMIT 1")
+    suspend fun getLocalDnsRecordForDomain(domain: String): LocalDnsRecordEntity?
+
+    @Query("DELETE FROM local_dns_records WHERE id = :id")
+    suspend fun deleteLocalDnsRecord(id: String)
+
     // DNS Query Logging
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertDnsLog(log: DnsLogEntity)

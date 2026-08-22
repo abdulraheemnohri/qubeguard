@@ -49,13 +49,24 @@ class VpnServiceImplementation : VpnService() {
     private fun startVpn() {
         if (isRunning) return
         startForeground(NOTIFICATION_ID, createNotification())
-        vpnInterface = Builder()
+
+        val builder = Builder()
             .setSession("QubeGuard VPN")
             .addAddress("10.0.0.2", 24)
             .addDnsServer("10.0.0.2")
             .addRoute("0.0.0.0", 0)
             .setMtu(1500)
-            .establish()
+
+        // Per-App Split Tunneling Bypass
+        val prefs = getSharedPreferences("qubeguard_settings", Context.MODE_PRIVATE)
+        val bypassSet = prefs.getStringSet("bypass_packages", emptySet()) ?: emptySet()
+        bypassSet.forEach { pkg ->
+            runCatching {
+                builder.addDisallowedApplication(pkg)
+            }
+        }
+
+        vpnInterface = builder.establish()
 
         vpnThread = Thread {
             try {

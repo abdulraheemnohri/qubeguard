@@ -14,6 +14,7 @@ import com.qubeguard.app.browser.QubeManager
 import com.qubeguard.app.browser.QubeProfile
 import com.qubeguard.app.data.blocklist.BlocklistDao
 import com.qubeguard.app.data.blocklist.BlocklistFetcherWorker
+import com.qubeguard.app.data.blocklist.BlocklistRule
 import com.qubeguard.app.data.blocklist.BlocklistSource
 import com.qubeguard.app.data.blocklist.DnsLogEntity
 import com.qubeguard.app.ml.MLClassifier
@@ -21,6 +22,8 @@ import com.qubeguard.app.ml.ModelDownloader
 import com.qubeguard.app.policy.FeedbackCollector
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.launch
+import org.json.JSONArray
+import org.json.JSONObject
 import java.security.MessageDigest
 import javax.inject.Inject
 
@@ -147,6 +150,75 @@ class SettingsViewModel @Inject constructor(
             ExistingWorkPolicy.REPLACE,
             request
         )
+    }
+
+    suspend fun exportSettingsJson(): String {
+        val sources = blocklistDao.getAllSources()
+        val allowlist = blocklistDao.getAllAllowlistRules()
+        val json = JSONObject().apply {
+            put("upstreamDns", _upstreamDns.value)
+            put("aiEnabled", _isMlEnabled.value)
+            put("sources", JSONArray().apply {
+                sources.filter { it.id.startsWith("custom_") }.forEach { s ->
+                    put(JSONObject().apply {
+                        put("name", s.name)
+                        put("url", s.url)
+                        put("category", s.category)
+                        put("format", s.format)
+                    })
+                }
+            })
+            put("allowlist", JSONArray().apply {
+                allowlist.forEach { r ->
+                    put(r.rule)
+                }
+            })
+        }
+        return json.toString(2)
+    }
+
+    suspend fun importSettingsJson(jsonStr: String): Boolean {
+        return try {
+            val json = JSONObject(jsonStr)
+            val dns = json.optString("upstreamDns", "1.1.1.1")
+            setUpstreamDns(dns)
+
+            val sourcesArr = json.optJSONArray("sources")
+            if (sourcesArr != null) {
+                for (i in 0 until sourcesArr.length()) {
+                    val sObj = sourcesArr.getJSONObject(i)
+                    addCustomBlocklistSource(
+                        name = sObj.getString("name"),
+                        url = sObj.getString("url"),
+                        category = sObj.optString("category", "custom"),
+                        format = sObj.optString("format", "adblock_plus")
+                    )
+                }
+            }
+
+            val allowlistArr = json.optJSONArray("allowlist")
+            if (allowlistArr != null) {
+                for (i in 0 until allowlistArr.length()) {
+                    val ruleStr = allowlistArr.getString(i)
+                    val ruleId = "custom_allow_" + sha256(ruleStr).substring(0, 10)
+                    blocklistDao.insertRule(
+                        BlocklistRule(
+                            id = ruleId,
+                            sourceId = "custom_allowlist",
+                            rule = ruleStr,
+                            type = "domain",
+                            category = "custom",
+                            isAllowlist = true,
+                            isCompiled = false,
+                            lastUpdated = System.currentTimeMillis().toString()
+                        )
+                    )
+                }
+            }
+            true
+        } catch (_: Exception) {
+            false
+        }
     }
 
     fun createQube(name: String, color: Int = QubeProfile.predefinedColors.random()) {

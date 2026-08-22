@@ -1,6 +1,7 @@
 package com.qubeguard.app.ui
 
 import android.os.Bundle
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.Arrangement
@@ -14,6 +15,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.DropdownMenu
@@ -21,23 +23,28 @@ import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.livedata.observeAsState
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.qubeguard.app.ui.theme.QubeGuardTheme
 import dagger.hilt.android.AndroidEntryPoint
+import kotlinx.coroutines.launch
 
 @AndroidEntryPoint
 class SettingsActivity : ComponentActivity() {
@@ -61,11 +68,18 @@ fun SettingsScreen(
     onNavigateToDnsLogs: (() -> Unit)? = null
 ) {
     val viewModel: SettingsViewModel = hiltViewModel()
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+
     val aiEnabled by viewModel.isMlEnabled.observeAsState(false)
     val autoUpdate by viewModel.isAutoModelUpdateEnabled.observeAsState(false)
     val upstreamDns by viewModel.upstreamDns.observeAsState("1.1.1.1")
 
     var showDnsMenu by remember { mutableStateOf(false) }
+    var showExportDialog by remember { mutableStateOf(false) }
+    var showImportDialog by remember { mutableStateOf(false) }
+    var exportedJsonText by remember { mutableStateOf("") }
+    var importJsonText by remember { mutableStateOf("") }
 
     val dnsProviders = mapOf(
         "1.1.1.1" to "Cloudflare (1.1.1.1)",
@@ -128,6 +142,23 @@ fun SettingsScreen(
             }
         }
 
+        SettingsCard("Backup & Restore") {
+            Text("Backup or restore custom blocklist sources, allowlists, and DNS settings.", style = MaterialTheme.typography.bodyMedium)
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Button(onClick = {
+                    scope.launch {
+                        exportedJsonText = viewModel.exportSettingsJson()
+                        showExportDialog = true
+                    }
+                }) {
+                    Text("Export Settings")
+                }
+                OutlinedButton(onClick = { showImportDialog = true }) {
+                    Text("Import Settings")
+                }
+            }
+        }
+
         SettingsCard("Local Transformer") {
             Text("Model", style = MaterialTheme.typography.labelLarge)
             Text("r3ddkahili/final-complete-malicious-url-model", style = MaterialTheme.typography.bodyMedium)
@@ -159,6 +190,62 @@ fun SettingsScreen(
                 }
             }
         }
+    }
+
+    // Export Dialog
+    if (showExportDialog) {
+        AlertDialog(
+            onDismissRequest = { showExportDialog = false },
+            title = { Text("Exported Settings JSON") },
+            text = {
+                OutlinedTextField(
+                    value = exportedJsonText,
+                    onValueChange = {},
+                    modifier = Modifier.fillMaxWidth(),
+                    readOnly = true,
+                    maxLines = 8
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = { showExportDialog = false }) { Text("Close") }
+            }
+        )
+    }
+
+    // Import Dialog
+    if (showImportDialog) {
+        AlertDialog(
+            onDismissRequest = { showImportDialog = false },
+            title = { Text("Import Settings JSON") },
+            text = {
+                OutlinedTextField(
+                    value = importJsonText,
+                    onValueChange = { importJsonText = it },
+                    modifier = Modifier.fillMaxWidth(),
+                    label = { Text("Paste JSON config") },
+                    maxLines = 8
+                )
+            },
+            confirmButton = {
+                Button(onClick = {
+                    scope.launch {
+                        val success = viewModel.importSettingsJson(importJsonText)
+                        if (success) {
+                            Toast.makeText(context, "Settings imported successfully", Toast.LENGTH_SHORT).show()
+                            showImportDialog = false
+                            importJsonText = ""
+                        } else {
+                            Toast.makeText(context, "Invalid JSON settings payload", Toast.LENGTH_SHORT).show()
+                        }
+                    }
+                }) {
+                    Text("Import")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showImportDialog = false }) { Text("Cancel") }
+            }
+        )
     }
 }
 

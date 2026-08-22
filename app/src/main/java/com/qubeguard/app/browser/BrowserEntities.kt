@@ -22,3 +22,12 @@ data class HistoryEntity(
     val url: String,
     val visitedAt: String
 )
+
+data class DownloadItem(
+    val id: String,
+    val url: String,
+    val fileName: String,
+    val sizeBytes: Long,
+    val mimeType: String,
+    val timestamp: String
+)

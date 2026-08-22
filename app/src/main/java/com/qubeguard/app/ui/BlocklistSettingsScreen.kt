@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
@@ -17,6 +18,7 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -41,7 +43,7 @@ import com.qubeguard.app.data.blocklist.BlocklistSource
 import com.qubeguard.app.ui.theme.QubeGuardTheme
 
 /**
- * Blocklist Settings Screen for managing built-in and custom blocklist sources.
+ * Blocklist Settings Screen for managing built-in and custom blocklist sources with category filtering.
  */
 @Composable
 fun BlocklistSettingsScreen() {
@@ -51,10 +53,18 @@ fun BlocklistSettingsScreen() {
 
     var newSourceName by remember { mutableStateOf("") }
     var newSourceUrl by remember { mutableStateOf("") }
+    var selectedCategoryFilter by remember { mutableStateOf("all") }
 
     LaunchedEffect(Unit) {
         viewModel.loadBlocklistSources()
         viewModel.loadTotalRuleCount()
+    }
+
+    val categories = listOf("all", "ads", "privacy", "security", "social", "annoyances", "custom")
+    val filteredSources = if (selectedCategoryFilter == "all") {
+        blocklistSources
+    } else {
+        blocklistSources.filter { it.category.equals(selectedCategoryFilter, ignoreCase = true) }
     }
 
     Column(
@@ -86,6 +96,20 @@ fun BlocklistSettingsScreen() {
                     Spacer(Modifier.width(6.dp))
                     Text("Sync Now")
                 }
+            }
+        }
+
+        // Category Filter Chips
+        LazyRow(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            items(categories) { cat ->
+                FilterChip(
+                    selected = selectedCategoryFilter == cat,
+                    onClick = { selectedCategoryFilter = cat },
+                    label = { Text(cat.replaceFirstChar { it.uppercase() }) }
+                )
             }
         }
 
@@ -128,13 +152,13 @@ fun BlocklistSettingsScreen() {
             }
         }
 
-        Text("Subscribed Sources (${blocklistSources.size})", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
+        Text("Subscribed Sources (${filteredSources.size})", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
 
         LazyColumn(
             modifier = Modifier.weight(1f),
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            items(blocklistSources) { source ->
+            items(filteredSources) { source ->
                 BlocklistSourceItem(
                     source = source,
                     onToggle = { isEnabled ->

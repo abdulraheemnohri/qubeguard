@@ -103,4 +103,14 @@ interface BlocklistDao {
 
     @Query("DELETE FROM dns_logs")
     suspend fun clearDnsLogs()
+
+    // System Event Logging
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertSystemLog(log: SystemLogEntity)
+
+    @Query("SELECT * FROM system_logs ORDER BY timestamp DESC LIMIT :limit")
+    suspend fun getRecentSystemLogs(limit: Int = 200): List<SystemLogEntity>
+
+    @Query("DELETE FROM system_logs")
+    suspend fun clearSystemLogs()
 }

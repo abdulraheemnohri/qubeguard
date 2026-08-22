@@ -19,6 +19,7 @@ import com.qubeguard.app.data.blocklist.BlocklistRule
 import com.qubeguard.app.data.blocklist.BlocklistSource
 import com.qubeguard.app.data.blocklist.DnsLogEntity
 import com.qubeguard.app.data.blocklist.LocalDnsRecordEntity
+import com.qubeguard.app.data.blocklist.SystemLogEntity
 import com.qubeguard.app.ml.MLClassifier
 import com.qubeguard.app.ml.ModelDownloader
 import com.qubeguard.app.policy.FeedbackCollector
@@ -87,6 +88,9 @@ class SettingsViewModel @Inject constructor(
     private val _localDnsRecords = MutableLiveData<List<LocalDnsRecordEntity>>(emptyList())
     val localDnsRecords: LiveData<List<LocalDnsRecordEntity>> = _localDnsRecords
 
+    private val _systemLogs = MutableLiveData<List<SystemLogEntity>>(emptyList())
+    val systemLogs: LiveData<List<SystemLogEntity>> = _systemLogs
+
     init {
         loadBlocklistSources()
         loadQubeProfiles()
@@ -94,6 +98,7 @@ class SettingsViewModel @Inject constructor(
         loadTotalRuleCount()
         loadDnsLogs()
         loadLocalDnsRecords()
+        loadSystemLogs()
     }
 
     fun loadBlocklistSources() {
@@ -129,6 +134,19 @@ class SettingsViewModel @Inject constructor(
         viewModelScope.launch {
             blocklistDao.clearDnsLogs()
             _dnsLogs.value = emptyList()
+        }
+    }
+
+    fun loadSystemLogs() {
+        viewModelScope.launch {
+            _systemLogs.value = blocklistDao.getRecentSystemLogs()
+        }
+    }
+
+    fun clearSystemLogs() {
+        viewModelScope.launch {
+            blocklistDao.clearSystemLogs()
+            _systemLogs.value = emptyList()
         }
     }
 

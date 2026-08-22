@@ -31,6 +31,8 @@ class BrowserViewModel @Inject constructor(
     private val blockingEngine: BlockingEngine
 ) : AndroidViewModel(application) {
 
+    private val prefs = application.getSharedPreferences("qubeguard_browser_settings", Application.MODE_PRIVATE)
+
     private val _tabs = MutableLiveData<List<BrowserTab>>(listOf(BrowserTab()))
     val tabs: LiveData<List<BrowserTab>> = _tabs
 
@@ -40,10 +42,25 @@ class BrowserViewModel @Inject constructor(
     private val _isDesktopMode = MutableLiveData(false)
     val isDesktopMode: LiveData<Boolean> = _isDesktopMode
 
-    private val _isCosmeticAdHidingEnabled = MutableLiveData(true)
+    private val _isCosmeticAdHidingEnabled = MutableLiveData(prefs.getBoolean("cosmetic_ad_hiding", true))
     val isCosmeticAdHidingEnabled: LiveData<Boolean> = _isCosmeticAdHidingEnabled
 
-    private val _searchEngine = MutableLiveData("DuckDuckGo")
+    private val _isJavaScriptEnabled = MutableLiveData(prefs.getBoolean("javascript_enabled", true))
+    val isJavaScriptEnabled: LiveData<Boolean> = _isJavaScriptEnabled
+
+    private val _blockPopups = MutableLiveData(prefs.getBoolean("block_popups", true))
+    val blockPopups: LiveData<Boolean> = _blockPopups
+
+    private val _doNotTrack = MutableLiveData(prefs.getBoolean("do_not_track", true))
+    val doNotTrack: LiveData<Boolean> = _doNotTrack
+
+    private val _textZoomLevel = MutableLiveData(prefs.getInt("text_zoom_level", 100))
+    val textZoomLevel: LiveData<Int> = _textZoomLevel
+
+    private val _autoClearOnExit = MutableLiveData(prefs.getBoolean("auto_clear_exit", false))
+    val autoClearOnExit: LiveData<Boolean> = _autoClearOnExit
+
+    private val _searchEngine = MutableLiveData(prefs.getString("search_engine", "DuckDuckGo") ?: "DuckDuckGo")
     val searchEngine: LiveData<String> = _searchEngine
 
     private val _loadProgress = MutableLiveData(0)
@@ -95,10 +112,42 @@ class BrowserViewModel @Inject constructor(
     }
 
     fun toggleCosmeticAdHiding() {
-        _isCosmeticAdHidingEnabled.value = !(_isCosmeticAdHidingEnabled.value ?: true)
+        val newVal = !(_isCosmeticAdHidingEnabled.value ?: true)
+        prefs.edit().putBoolean("cosmetic_ad_hiding", newVal).apply()
+        _isCosmeticAdHidingEnabled.value = newVal
+    }
+
+    fun toggleJavaScript() {
+        val newVal = !(_isJavaScriptEnabled.value ?: true)
+        prefs.edit().putBoolean("javascript_enabled", newVal).apply()
+        _isJavaScriptEnabled.value = newVal
+    }
+
+    fun toggleBlockPopups() {
+        val newVal = !(_blockPopups.value ?: true)
+        prefs.edit().putBoolean("block_popups", newVal).apply()
+        _blockPopups.value = newVal
+    }
+
+    fun toggleDoNotTrack() {
+        val newVal = !(_doNotTrack.value ?: true)
+        prefs.edit().putBoolean("do_not_track", newVal).apply()
+        _doNotTrack.value = newVal
+    }
+
+    fun setTextZoomLevel(zoom: Int) {
+        prefs.edit().putInt("text_zoom_level", zoom).apply()
+        _textZoomLevel.value = zoom
+    }
+
+    fun toggleAutoClearOnExit() {
+        val newVal = !(_autoClearOnExit.value ?: false)
+        prefs.edit().putBoolean("auto_clear_exit", newVal).apply()
+        _autoClearOnExit.value = newVal
     }
 
     fun setSearchEngine(engine: String) {
+        prefs.edit().putString("search_engine", engine).apply()
         _searchEngine.value = engine
     }
 

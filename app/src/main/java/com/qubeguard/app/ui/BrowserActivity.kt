@@ -160,6 +160,9 @@ fun BrowserScreen(
     val activeTabId by viewModel.activeTabId.observeAsState("")
     val isDesktopMode by viewModel.isDesktopMode.observeAsState(false)
     val cosmeticAdHidingActive by viewModel.isCosmeticAdHidingEnabled.observeAsState(true)
+    val isJsEnabled by viewModel.isJavaScriptEnabled.observeAsState(true)
+    val blockPopups by viewModel.blockPopups.observeAsState(true)
+    val textZoom by viewModel.textZoomLevel.observeAsState(100)
     val searchEngine by viewModel.searchEngine.observeAsState("DuckDuckGo")
     val loadProgress by viewModel.loadProgress.observeAsState(0)
     val selectedQube by viewModel.selectedQube.observeAsState()
@@ -178,6 +181,7 @@ fun BrowserScreen(
     var showShieldsDialog by remember { mutableStateOf(false) }
     var showQubeDialog by remember { mutableStateOf(false) }
     var showSearchEngineDialog by remember { mutableStateOf(false) }
+    var showBrowserSettingsDialog by remember { mutableStateOf(false) }
 
     // Video Download Prompt state
     var detectedMediaUrl by remember { mutableStateOf<String?>(null) }
@@ -206,6 +210,18 @@ fun BrowserScreen(
 
     LaunchedEffect(cosmeticAdHidingActive) {
         webView?.isCosmeticAdHidingEnabled = cosmeticAdHidingActive
+    }
+
+    LaunchedEffect(isJsEnabled) {
+        webView?.setJavaScriptEnabled(isJsEnabled)
+    }
+
+    LaunchedEffect(blockPopups) {
+        webView?.setBlockPopups(blockPopups)
+    }
+
+    LaunchedEffect(textZoom) {
+        webView?.setTextZoomLevel(textZoom)
     }
 
     Column(modifier = Modifier.fillMaxSize()) {
@@ -324,6 +340,13 @@ fun BrowserScreen(
                                 }
                             )
                             DropdownMenuItem(
+                                text = { Text("Browser Settings") },
+                                onClick = {
+                                    showBrowserSettingsDialog = true
+                                    showOverflowMenu = false
+                                }
+                            )
+                            DropdownMenuItem(
                                 text = { Text("Downloads (${downloads.size})") },
                                 onClick = {
                                     showDownloadsDialog = true
@@ -369,7 +392,7 @@ fun BrowserScreen(
                             )
                             HorizontalDivider()
                             DropdownMenuItem(
-                                text = { Text("Settings") },
+                                text = { Text("System Settings") },
                                 onClick = {
                                     context.startActivity(Intent(context, SettingsActivity::class.java))
                                     showOverflowMenu = false
@@ -451,6 +474,9 @@ fun BrowserScreen(
                         selectedQube?.let { setQubeId(it.id) }
                         setDesktopMode(isDesktopMode)
                         isCosmeticAdHidingEnabled = cosmeticAdHidingActive
+                        setJavaScriptEnabled(isJsEnabled)
+                        setBlockPopups(blockPopups)
+                        setTextZoomLevel(textZoom)
                         onProgressChanged = { progress ->
                             viewModel.setLoadProgress(progress)
                         }
@@ -491,6 +517,56 @@ fun BrowserScreen(
                 modifier = Modifier.fillMaxSize()
             )
         }
+    }
+
+    // Detailed Browser Settings Modal
+    if (showBrowserSettingsDialog) {
+        AlertDialog(
+            onDismissRequest = { showBrowserSettingsDialog = false },
+            title = { Text("Browser Settings") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("Enable JavaScript", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold)
+                            Text("Allows interactive Web content", style = MaterialTheme.typography.bodySmall)
+                        }
+                        Switch(checked = isJsEnabled, onCheckedChange = { viewModel.toggleJavaScript() })
+                    }
+                    HorizontalDivider()
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("Block Popups", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold)
+                            Text("Prevents unauthorized popup windows", style = MaterialTheme.typography.bodySmall)
+                        }
+                        Switch(checked = blockPopups, onCheckedChange = { viewModel.toggleBlockPopups() })
+                    }
+                    HorizontalDivider()
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("Do Not Track Header", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold)
+                            Text("Sends DNT HTTP header to websites", style = MaterialTheme.typography.bodySmall)
+                        }
+                        Switch(checked = true, onCheckedChange = {}, enabled = false)
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showBrowserSettingsDialog = false }) { Text("Done") }
+            }
+        )
     }
 
     // Video Download Dialog Prompt

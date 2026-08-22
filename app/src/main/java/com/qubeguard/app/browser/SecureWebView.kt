@@ -115,6 +115,18 @@ class SecureWebView @JvmOverloads constructor(
         CookieManager.getInstance().removeAllCookies(null)
     }
 
+    fun setJavaScriptEnabled(enabled: Boolean) {
+        settings.javaScriptEnabled = enabled
+    }
+
+    fun setBlockPopups(block: Boolean) {
+        settings.javaScriptCanOpenWindowsAutomatically = !block
+    }
+
+    fun setTextZoomLevel(zoom: Int) {
+        settings.textZoom = zoom
+    }
+
     fun setDesktopMode(enabled: Boolean) {
         settings.userAgentString = if (enabled) DESKTOP_USER_AGENT else MOBILE_USER_AGENT
         settings.useWideViewPort = enabled

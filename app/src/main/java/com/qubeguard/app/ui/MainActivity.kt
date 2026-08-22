@@ -16,10 +16,12 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.livedata.observeAsState
 import androidx.compose.ui.Modifier
@@ -46,7 +48,15 @@ fun MainScreen(
     val viewModel: MainViewModel = hiltViewModel()
     val context = LocalContext.current
     val vpnRunning by viewModel.isVpnRunning.observeAsState(false)
-    val blockedCount by viewModel.blockedCount.observeAsState(0)
+    val totalQueries by viewModel.totalQueries.observeAsState(0)
+    val blockedQueries by viewModel.blockedQueries.observeAsState(0)
+    val adsCount by viewModel.adsCount.observeAsState(0)
+    val trackersCount by viewModel.trackersCount.observeAsState(0)
+    val malwareCount by viewModel.malwareCount.observeAsState(0)
+
+    LaunchedEffect(Unit) {
+        viewModel.loadAnalytics()
+    }
 
     Column(
         modifier = Modifier
@@ -66,7 +76,7 @@ fun MainScreen(
                     fontWeight = FontWeight.SemiBold
                 )
                 Text(
-                    if (vpnRunning) "VPN/DNS filtering is running. Optional AI can operate independently."
+                    if (vpnRunning) "VPN/DNS filtering is running. System-wide network requests are protected."
                     else "Start protection to enable network-level filtering.",
                     style = MaterialTheme.typography.bodyMedium
                 )
@@ -80,8 +90,29 @@ fun MainScreen(
         }
 
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            StatCard("Blocked", blockedCount.toString(), Modifier.weight(1f))
-            StatCard("AI", "Optional", Modifier.weight(1f))
+            StatCard("Total Requests", totalQueries.toString(), Modifier.weight(1f))
+            StatCard("Blocked", blockedQueries.toString(), Modifier.weight(1f))
+        }
+
+        // Threat Analytics Card
+        Card(modifier = Modifier.fillMaxWidth()) {
+            Column(modifier = Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("Threat Analytics", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                    Text("Ads Blocked:", style = MaterialTheme.typography.bodyMedium)
+                    Text("$adsCount", fontWeight = FontWeight.Bold)
+                }
+                HorizontalDivider()
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                    Text("Trackers Prevented:", style = MaterialTheme.typography.bodyMedium)
+                    Text("$trackersCount", fontWeight = FontWeight.Bold)
+                }
+                HorizontalDivider()
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                    Text("Malware/Phishing Blocked:", style = MaterialTheme.typography.bodyMedium)
+                    Text("${kotlin.math.max(0, malwareCount)}", fontWeight = FontWeight.Bold)
+                }
+            }
         }
 
         Card(modifier = Modifier.fillMaxWidth()) {

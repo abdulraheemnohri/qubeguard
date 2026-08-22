@@ -47,6 +47,17 @@
                 android:value="VPN and local DNS filtering" />
         </service>
 
+        <service
+            android:name=".vpn.QubeGuardTileService"
+            android:icon="@android:drawable/ic_lock_lock"
+            android:label="QubeGuard"
+            android:permission="android.permission.BIND_QUICK_SETTINGS_TILE"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.service.quicksettings.action.QS_TILE" />
+            </intent-filter>
+        </service>
+
         <activity
             android:name=".ui.MainActivity"
             android:exported="true">

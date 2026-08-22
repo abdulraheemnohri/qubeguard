@@ -45,11 +45,26 @@ class SecureWebView @JvmOverloads constructor(
                     'iframe[src*="ads"]', 'iframe[src*="doubleclick"]',
                     'div[id*="google_ads"]', 'div[class*="ad-banner"]',
                     'div[class*="ad-container"]', '.ad-slot', '.sponsored-post',
-                    '.ad-wrapper', '.ad-box', 'ins.adsbygoogle', '[class*="sponsored"]'
+                    '.ad-wrapper', '.ad-box', 'ins.adsbygoogle', '[class*="sponsored"]',
+                    '#player-ads', 'ytd-promoted-sparkles-web-renderer',
+                    'ytd-display-ad-renderer', '.ad-showing', '.ad-interrupting',
+                    '.video-ads', '.ytp-ad-overlay-container', '.ytp-ad-text',
+                    '.ytp-ad-skip-button-container', 'ytd-in-feed-ad-layout-renderer'
                 ];
                 var style = document.createElement('style');
                 style.innerHTML = selectors.join(', ') + ' { display: none !important; visibility: hidden !important; height: 0 !important; opacity: 0 !important; pointer-events: none !important; }';
                 document.head.appendChild(style);
+
+                // YouTube Auto-Skip Ad Observer
+                setInterval(function() {
+                    var skipBtn = document.querySelector('.ytp-ad-skip-button, .ytp-ad-skip-button-modern, .ytp-skip-ad-button');
+                    if (skipBtn) { skipBtn.click(); }
+                    var video = document.querySelector('video');
+                    var adElement = document.querySelector('.ad-showing, .ad-interrupting');
+                    if (adElement && video && isFinite(video.duration)) {
+                        video.currentTime = video.duration;
+                    }
+                }, 1000);
             })();
         """
     }

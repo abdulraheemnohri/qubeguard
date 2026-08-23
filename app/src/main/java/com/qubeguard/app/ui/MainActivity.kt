@@ -35,6 +35,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import com.qubeguard.app.engine.HealthState
 import com.qubeguard.app.ui.theme.QubeGuardTheme
 import dagger.hilt.android.AndroidEntryPoint
 
@@ -91,6 +92,7 @@ fun MainScreen(
     val viewModel: MainViewModel = hiltViewModel()
     val context = LocalContext.current
     val vpnRunning by viewModel.isVpnRunning.observeAsState(false)
+    val health by viewModel.protectionHealth.observeAsState()
     val totalQueries by viewModel.totalQueries.observeAsState(0)
     val blockedQueries by viewModel.blockedQueries.observeAsState(0)
     val adsCount by viewModel.adsCount.observeAsState(0)
@@ -120,7 +122,7 @@ fun MainScreen(
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
                     Text(
-                        if (vpnRunning) "CONNECTED" else "DISCONNECTED",
+                        if (vpnRunning) "CONNECTED (${health?.state ?: HealthState.PROTECTED})" else "DISCONNECTED",
                         style = MaterialTheme.typography.titleLarge,
                         fontWeight = FontWeight.Bold,
                         color = if (vpnRunning) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error
@@ -130,7 +132,7 @@ fun MainScreen(
                     }
                 }
                 Text(
-                    if (vpnRunning) "VPN/DNS filtering is running. System-wide network requests are protected."
+                    if (vpnRunning) "VPN/DNS filtering is running. ${health?.activeRuleCount ?: 0} active rules loaded."
                     else "Start protection to enable system-wide ad, tracker, and DNS filtering.",
                     style = MaterialTheme.typography.bodyMedium
                 )
@@ -158,6 +160,27 @@ fun MainScreen(
             StatCard("Total Requests", totalQueries.toString(), Modifier.weight(1f))
             StatCard("Blocked", blockedQueries.toString(), Modifier.weight(1f))
             StatCard("Data Saved", savedMb, Modifier.weight(1f))
+        }
+
+        // Protection Health Engine Monitor Card
+        Card(modifier = Modifier.fillMaxWidth()) {
+            Column(modifier = Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("Protection Health Monitor", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                    Text("VPN DNS Proxy:", style = MaterialTheme.typography.bodyMedium)
+                    Text(if (health?.vpnActive == true) "Active" else "Paused", fontWeight = FontWeight.Bold)
+                }
+                HorizontalDivider()
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                    Text("Blocklists Loaded:", style = MaterialTheme.typography.bodyMedium)
+                    Text("${health?.activeRuleCount ?: 0} rules", fontWeight = FontWeight.Bold)
+                }
+                HorizontalDivider()
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                    Text("Local AI Classifier:", style = MaterialTheme.typography.bodyMedium)
+                    Text(if (health?.aiEngineReady == true) "Loaded" else "Not installed", fontWeight = FontWeight.Bold)
+                }
+            }
         }
 
         // Threat Analytics Card
@@ -203,15 +226,6 @@ fun MainScreen(
                         Text("Settings")
                     }
                 }
-            }
-        }
-
-        Card(modifier = Modifier.fillMaxWidth()) {
-            Column(modifier = Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                Text("Protection layers", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
-                Text("Layer 1  •  Deterministic blocklists", style = MaterialTheme.typography.bodyMedium)
-                Text("Layer 2  •  Local VPN / DNS filtering", style = MaterialTheme.typography.bodyMedium)
-                Text("Layer 3  •  Optional local Transformer AI", style = MaterialTheme.typography.bodyMedium)
             }
         }
 

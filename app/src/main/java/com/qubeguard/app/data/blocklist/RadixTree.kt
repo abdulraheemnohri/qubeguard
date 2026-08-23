@@ -1,79 +1,43 @@
 package com.qubeguard.app.data.blocklist
 
-/**
- * A Radix Tree (Trie) implementation for fast domain/subdomain matching.
- * Indexes domains right-to-left (TLD first) so lookups match parent domain rules.
- */
+/** Reverse-label domain trie. Parent-domain rules match all subdomains. */
 class RadixTree {
     private val root = RadixNode()
 
-    /**
-     * Inserts a domain into the Radix Tree.
-     * @param domain The domain to insert (e.g., "example.com").
-     * @param isBlocked Whether this domain is blocked or allowed.
-     */
     fun insert(domain: String, isBlocked: Boolean) {
-        val normalizedDomain = domain.lowercase().trim().trimEnd('.')
-        if (normalizedDomain.isEmpty()) return
-
-        var currentNode = root
-        val segments = normalizedDomain.split('.').filter { it.isNotEmpty() }.reversed()
-
-        for (segment in segments) {
-            var childNode = currentNode.children.find { it.segment == segment }
-            if (childNode == null) {
-                childNode = RadixNode(segment)
-                currentNode.children.add(childNode)
-            }
-            currentNode = childNode
+        val normalized = normalize(domain) ?: return
+        var node = root
+        normalized.split('.').asReversed().forEach { segment ->
+            node = node.children.getOrPut(segment) { RadixNode() }
         }
-
-        currentNode.isBlocked = isBlocked
-        currentNode.isTerminal = true
+        node.isTerminal = true
+        node.isBlocked = isBlocked
     }
 
-    /**
-     * Checks if a domain is blocked by the Radix Tree.
-     * @param domain The domain to check (e.g., "sub.example.com").
-     * @return True if the domain or any parent domain is blocked.
-     */
     fun isBlocked(domain: String): Boolean {
-        val normalizedDomain = domain.lowercase().trim().trimEnd('.')
-        if (normalizedDomain.isEmpty()) return false
-
-        var currentNode = root
-        val segments = normalizedDomain.split('.').filter { it.isNotEmpty() }.reversed()
-
-        for (segment in segments) {
-            val childNode = currentNode.children.find { it.segment == segment } ?: return false
-            if (childNode.isTerminal && childNode.isBlocked) {
-                return true
-            }
-            currentNode = childNode
+        val normalized = normalize(domain) ?: return false
+        var node = root
+        for (segment in normalized.split('.').asReversed()) {
+            node = node.children[segment] ?: return false
+            if (node.isTerminal && node.isBlocked) return true
         }
-
-        return currentNode.isTerminal && currentNode.isBlocked
+        return false
     }
 
-    /**
-     * Checks if a domain or any of its subdomains are blocked.
-     * @param domain The domain to check.
-     * @return True if the domain or parent domain is blocked.
-     */
     fun isBlockedOrSubdomainBlocked(domain: String): Boolean = isBlocked(domain)
 
-    /**
-     * Clears all nodes from the Radix Tree.
-     */
-    fun clear() {
-        root.children.clear()
+    fun clear() = root.children.clear()
+
+    private fun normalize(value: String): String? {
+        val result = value.trim().trimEnd('.').lowercase()
+        if (result.isEmpty() || result.length > 253) return null
+        if (result.any { it.isWhitespace() }) return null
+        return result
     }
 
-    private class RadixNode(
-        val segment: String = "",
-        var isTerminal: Boolean = false,
-        var isBlocked: Boolean = false
-    ) {
-        val children = mutableListOf<RadixNode>()
+    private class RadixNode {
+        val children = HashMap<String, RadixNode>()
+        var isTerminal = false
+        var isBlocked = false
     }
 }

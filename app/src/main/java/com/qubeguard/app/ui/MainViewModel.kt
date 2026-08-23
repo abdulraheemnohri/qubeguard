@@ -8,6 +8,8 @@ import androidx.lifecycle.LiveData
 import androidx.lifecycle.MutableLiveData
 import androidx.lifecycle.viewModelScope
 import com.qubeguard.app.data.blocklist.BlocklistDao
+import com.qubeguard.app.engine.HealthEngine
+import com.qubeguard.app.engine.ProtectionHealth
 import com.qubeguard.app.engine.QubeGuardService
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Job
@@ -18,13 +20,17 @@ import javax.inject.Inject
 @HiltViewModel
 class MainViewModel @Inject constructor(
     application: Application,
-    private val blocklistDao: BlocklistDao
+    private val blocklistDao: BlocklistDao,
+    private val healthEngine: HealthEngine
 ) : AndroidViewModel(application) {
 
     private val prefs = application.getSharedPreferences("qubeguard_settings", Context.MODE_PRIVATE)
 
     private val _isVpnRunning = MutableLiveData(prefs.getBoolean("is_protection_active", false))
     val isVpnRunning: LiveData<Boolean> = _isVpnRunning
+
+    private val _protectionHealth = MutableLiveData<ProtectionHealth>(ProtectionHealth())
+    val protectionHealth: LiveData<ProtectionHealth> = _protectionHealth
 
     private val _totalQueries = MutableLiveData(0)
     val totalQueries: LiveData<Int> = _totalQueries
@@ -61,7 +67,10 @@ class MainViewModel @Inject constructor(
 
     fun loadAnalytics() {
         viewModelScope.launch {
-            _isVpnRunning.value = prefs.getBoolean("is_protection_active", false)
+            val vpnActive = prefs.getBoolean("is_protection_active", false)
+            _isVpnRunning.value = vpnActive
+            _protectionHealth.value = healthEngine.evaluateHealth(vpnActive)
+
             val logs = blocklistDao.getRecentDnsLogs(limit = 500)
             _totalQueries.value = logs.size
             val blocked = logs.filter { it.isBlocked }
@@ -95,6 +104,7 @@ class MainViewModel @Inject constructor(
         })
         _isVpnRunning.value = false
         stopConnectionTimer()
+        loadAnalytics()
     }
 
     private fun startConnectionTimer() {

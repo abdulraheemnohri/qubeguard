@@ -72,6 +72,10 @@ class BlocklistFetcherWorker @AssistedInject constructor(
                 lastUpdated = updatedAt
             )
 
+            if (normalizedRules.isEmpty()) {
+                throw IOException("Failed to normalize valid rules for ${source.id}; keeping active ruleset.")
+            }
+
             val updatedSource = source.copy(
                 version = getVersionFromContent(rawContent),
                 sha256Hash = sha256Hash,

@@ -116,6 +116,9 @@ interface BlocklistDao {
     @Query("DELETE FROM dns_logs")
     suspend fun clearDnsLogs()
 
+    @Query("DELETE FROM dns_logs WHERE timestamp < :cutoffTimestamp")
+    suspend fun pruneDnsLogsOlderThan(cutoffTimestamp: String)
+
     // System Event Logging
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertSystemLog(log: SystemLogEntity)

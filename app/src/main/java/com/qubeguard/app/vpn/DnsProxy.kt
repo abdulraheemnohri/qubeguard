@@ -5,14 +5,18 @@ import com.qubeguard.app.data.blocklist.BlocklistDao
 import com.qubeguard.app.data.blocklist.DnsLogEntity
 import com.qubeguard.app.policy.PolicyEngine
 import dagger.hilt.android.qualifiers.ApplicationContext
+import java.io.BufferedInputStream
+import java.io.BufferedOutputStream
 import java.net.DatagramPacket
 import java.net.DatagramSocket
 import java.net.InetAddress
+import java.net.InetSocketAddress
+import java.net.Socket
 import java.util.UUID
 import javax.inject.Inject
 import kotlinx.coroutines.runBlocking
 
-/** Local DNS resolver with bounded cache, response validation, and upstream failover. */
+/** Local DNS resolver with cache, response validation, UDP/TCP fallback and upstream failover. */
 class DnsProxy @Inject constructor(
     @ApplicationContext private val context: Context,
     private val policyEngine: PolicyEngine,
@@ -42,7 +46,7 @@ class DnsProxy @Inject constructor(
     private fun serve() {
         while (isRunning) {
             try {
-                val buffer = ByteArray(8192)
+                val buffer = ByteArray(MAX_UDP_DNS_PACKET)
                 val packet = DatagramPacket(buffer, buffer.size)
                 socket?.receive(packet) ?: break
                 val request = DnsRequest.parse(packet.data, packet.length)
@@ -120,8 +124,12 @@ class DnsProxy @Inject constructor(
 
     private fun forwardWithFailover(packet: DatagramPacket, request: DnsRequest, conditional: String?): ByteArray? {
         for (server in upstreams(conditional)) {
-            val response = forward(packet, request, server)
-            if (response != null) return response
+            val response = forward(packet, request, server) ?: continue
+            if (response.size <= MAX_UDP_DNS_PACKET && DnsResponse.isTruncated(response)) {
+                val tcp = forwardTcp(packet.data.copyOf(packet.length), request, server)
+                if (tcp != null) return tcp
+            }
+            return response
         }
         return null
     }
@@ -132,12 +140,43 @@ class DnsProxy @Inject constructor(
             check(socketProtector?.invoke(upstream) == true) { "Unable to protect upstream socket" }
             val address = InetAddress.getByName(dnsServerIp)
             upstream.send(DatagramPacket(packet.data, packet.length, address, 53))
-            val responseBuffer = ByteArray(8192)
+            val responseBuffer = ByteArray(MAX_UDP_DNS_PACKET)
             val response = DatagramPacket(responseBuffer, responseBuffer.size)
             upstream.receive(response)
             val result = response.data.copyOf(response.length)
             require(DnsResponse.isValidForRequest(result, request))
             result
+        }
+    }.getOrNull()
+
+    private fun forwardTcp(query: ByteArray, request: DnsRequest, dnsServerIp: String): ByteArray? = runCatching {
+        Socket().use { tcp ->
+            tcp.soTimeout = UPSTREAM_TIMEOUT_MS
+            tcp.connect(InetSocketAddress(dnsServerIp, 53), UPSTREAM_TIMEOUT_MS)
+            // The socket is outside the VPN only after Android protect() is applied.
+            // A TCP protect callback is not interchangeable with DatagramSocket protection,
+            // so TCP fallback is enabled only when the platform adapter supplies one.
+            val protector = tcpSocketProtector ?: return null
+            check(protector(tcp)) { "Unable to protect upstream TCP socket" }
+            val output = BufferedOutputStream(tcp.getOutputStream())
+            val input = BufferedInputStream(tcp.getInputStream())
+            output.write((query.size ushr 8) and 0xFF)
+            output.write(query.size and 0xFF)
+            output.write(query)
+            output.flush()
+            val hi = input.read(); val lo = input.read()
+            require(hi >= 0 && lo >= 0)
+            val length = (hi shl 8) or lo
+            require(length in 12..MAX_TCP_DNS_MESSAGE)
+            val response = ByteArray(length)
+            var offset = 0
+            while (offset < length) {
+                val read = input.read(response, offset, length - offset)
+                require(read > 0)
+                offset += read
+            }
+            require(DnsResponse.isValidForRequest(response, request))
+            response
         }
     }.getOrNull()
 
@@ -199,13 +238,13 @@ class DnsProxy @Inject constructor(
             return response
         }
 
+        fun isTruncated(message: ByteArray): Boolean = message.size >= 4 && (readU16(message, 2) and 0x0200) != 0
+
         fun isValidForRequest(message: ByteArray, request: DnsRequest): Boolean {
             if (message.size < 12) return false
-            val id = readU16(message, 0)
-            val flags = readU16(message, 2)
+            val id = readU16(message, 0); val flags = readU16(message, 2)
             if (id != request.id || flags and 0x8000 == 0) return false
-            val questionCount = readU16(message, 4)
-            if (questionCount != 1) return false
+            if (readU16(message, 4) != 1) return false
             val parsed = runCatching { DnsRequest.parse(message, message.size) }.getOrNull() ?: return false
             return parsed.domain == request.domain && parsed.qType == request.qType && (parsed.qClass == request.qClass || parsed.qClass == 1)
         }
@@ -243,5 +282,9 @@ class DnsProxy @Inject constructor(
         private const val MAX_CACHE_TTL_SECONDS = 3600
         private const val MAX_UPSTREAMS = 5
         private const val UPSTREAM_TIMEOUT_MS = 2500
+        private const val MAX_UDP_DNS_PACKET = 4096
+        private const val MAX_TCP_DNS_MESSAGE = 65535
+        @Volatile private var tcpSocketProtector: ((Socket) -> Boolean)? = null
+        fun setTcpSocketProtector(protector: (Socket) -> Boolean) { tcpSocketProtector = protector }
     }
 }

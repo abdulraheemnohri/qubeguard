@@ -4,6 +4,7 @@ import androidx.room.Dao
 import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
+import androidx.room.Transaction
 import androidx.room.Update
 
 @Dao
@@ -61,6 +62,17 @@ interface BlocklistDao {
 
     @Query("DELETE FROM blocklist_rules WHERE id = :id")
     suspend fun deleteRule(id: String)
+
+    /**
+     * Atomic transaction to safely replace blocklist rules and update source metadata.
+     * Prevents partial deletion or state corruption if updates fail.
+     */
+    @Transaction
+    suspend fun replaceRulesForSourceAtomic(sourceId: String, rules: List<BlocklistRule>, source: BlocklistSource) {
+        deleteRulesBySource(sourceId)
+        insertRules(rules)
+        updateSource(source)
+    }
 
     @Query("""
         SELECT * FROM blocklist_rules

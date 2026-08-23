@@ -31,6 +31,15 @@ class DeterministicBlocker @Inject constructor(
     }
 
     /**
+     * Fast non-blocking check using compiled in-memory structures.
+     */
+    fun isBlockedFast(input: String): Boolean {
+        if (!isInitialized) return false
+        if (ruleCompiler.isAllowed(input)) return false
+        return ruleCompiler.isBlocked(input)
+    }
+
+    /**
      * Checks if a domain or URL is blocked by the deterministic rules.
      * @param input The domain or URL to check.
      * @return True if the input is blocked.

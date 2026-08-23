@@ -9,11 +9,11 @@ import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import com.qubeguard.app.data.blocklist.DecisionCache
 import com.qubeguard.app.data.blocklist.DeterministicBlocker
 import com.qubeguard.app.ml.MLClassifier
 import dagger.hilt.android.AndroidEntryPoint
 import javax.inject.Inject
-import kotlinx.coroutines.runBlocking
 
 @AndroidEntryPoint
 class SecureWebView @JvmOverloads constructor(
@@ -24,6 +24,7 @@ class SecureWebView @JvmOverloads constructor(
 
     @Inject lateinit var deterministicBlocker: DeterministicBlocker
     @Inject lateinit var mlClassifier: MLClassifier
+    @Inject lateinit var decisionCache: DecisionCache
 
     private var qubeId: String = "default"
     var isCosmeticAdHidingEnabled: Boolean = true
@@ -87,7 +88,7 @@ class SecureWebView @JvmOverloads constructor(
 
         webViewClient = SecureWebViewClient(
             deterministicBlocker = deterministicBlocker,
-            mlClassifier = mlClassifier,
+            decisionCache = decisionCache,
             onPageFinishedCallback = {
                 if (isCosmeticAdHidingEnabled) {
                     evaluateJavascript(COSMETIC_AD_BLOCK_SCRIPT, null)
@@ -130,8 +131,6 @@ class SecureWebView @JvmOverloads constructor(
         }
 
         CookieManager.getInstance().setAcceptThirdPartyCookies(this, false)
-        clearCache(true)
-        CookieManager.getInstance().removeAllCookies(null)
     }
 
     fun setJavaScriptEnabled(enabled: Boolean) {
@@ -166,7 +165,7 @@ class SecureWebView @JvmOverloads constructor(
 
     class SecureWebViewClient(
         private val deterministicBlocker: DeterministicBlocker,
-        private val mlClassifier: MLClassifier,
+        private val decisionCache: DecisionCache,
         private val onPageFinishedCallback: () -> Unit,
         private val onMediaDetected: (String, String) -> Unit,
         private val onUrlLoading: (String) -> Unit
@@ -187,11 +186,15 @@ class SecureWebView @JvmOverloads constructor(
         ): WebResourceResponse? {
             val url = request?.url?.toString() ?: return null
 
-            if (runBlocking { deterministicBlocker.isBlocked(url) }) {
+            // 1. Check in-memory DecisionCache (O(1) fast lookup)
+            val cachedDecision = decisionCache.get(url)
+            if (cachedDecision == true) {
                 return createBlockedResponse()
             }
 
-            if (mlClassifier.isModelLoaded() && runBlocking { mlClassifier.isBlocked(url) }) {
+            // 2. Synchronous fast BloomFilter / RadixTree check
+            if (deterministicBlocker.isBlockedFast(url)) {
+                decisionCache.put(url, true)
                 return createBlockedResponse()
             }
 

@@ -12,7 +12,7 @@ import java.util.UUID
 import javax.inject.Inject
 import kotlinx.coroutines.runBlocking
 
-/** Local DNS resolver with bounded cache and upstream failover. */
+/** Local DNS resolver with bounded cache, response validation, and upstream failover. */
 class DnsProxy @Inject constructor(
     @ApplicationContext private val context: Context,
     private val policyEngine: PolicyEngine,
@@ -47,8 +47,7 @@ class DnsProxy @Inject constructor(
                 socket?.receive(packet) ?: break
                 val request = DnsRequest.parse(packet.data, packet.length)
                 val cacheKey = "${request.domain}|${request.qType}|${request.qClass}"
-                val cached = dnsCache.get(cacheKey)
-                if (cached != null) {
+                dnsCache.get(cacheKey)?.let { cached ->
                     val response = rewriteTransactionId(cached, request.id)
                     socket?.send(DatagramPacket(response, response.size, packet.address, packet.port))
                     log(request.domain, false, "DNS cache hit")
@@ -71,7 +70,7 @@ class DnsProxy @Inject constructor(
                     continue
                 }
 
-                val response = forwardWithFailover(packet, getConditionalTargetServer(request.domain))
+                val response = forwardWithFailover(packet, request, getConditionalTargetServer(request.domain))
                 if (response != null) {
                     val ttl = DnsResponse.minimumAnswerTtl(response).coerceIn(1, MAX_CACHE_TTL_SECONDS)
                     dnsCache.put(cacheKey, response, ttl)
@@ -112,22 +111,22 @@ class DnsProxy @Inject constructor(
 
     private fun upstreams(conditional: String?): List<String> {
         if (conditional != null) return listOf(conditional)
-        val raw = prefs().getString("upstream_dns_servers", null)
-        val configured = raw.orEmpty().split(',', '\n', ' ', ';').map { it.trim() }.filter { it.isNotEmpty() }.distinct()
+        val configured = prefs().getString("upstream_dns_servers", null).orEmpty()
+            .split(',', '\n', ' ', ';').map { it.trim() }.filter { it.isNotEmpty() }.distinct()
         if (configured.isNotEmpty()) return configured.take(MAX_UPSTREAMS)
         val legacy = prefs().getString("upstream_dns_ip", "1.1.1.1") ?: "1.1.1.1"
-        return listOf(legacy, "1.0.0.1", "8.8.8.8")
+        return listOf(legacy, "1.0.0.1", "8.8.8.8").distinct()
     }
 
-    private fun forwardWithFailover(packet: DatagramPacket, conditional: String?): ByteArray? {
+    private fun forwardWithFailover(packet: DatagramPacket, request: DnsRequest, conditional: String?): ByteArray? {
         for (server in upstreams(conditional)) {
-            val response = forward(packet, server)
-            if (response != null && response.size >= 12) return response
+            val response = forward(packet, request, server)
+            if (response != null) return response
         }
         return null
     }
 
-    private fun forward(packet: DatagramPacket, dnsServerIp: String): ByteArray? = runCatching {
+    private fun forward(packet: DatagramPacket, request: DnsRequest, dnsServerIp: String): ByteArray? = runCatching {
         DatagramSocket().use { upstream ->
             upstream.soTimeout = UPSTREAM_TIMEOUT_MS
             check(socketProtector?.invoke(upstream) == true) { "Unable to protect upstream socket" }
@@ -136,7 +135,9 @@ class DnsProxy @Inject constructor(
             val responseBuffer = ByteArray(8192)
             val response = DatagramPacket(responseBuffer, responseBuffer.size)
             upstream.receive(response)
-            response.data.copyOf(response.length)
+            val result = response.data.copyOf(response.length)
+            require(DnsResponse.isValidForRequest(result, request))
+            result
         }
     }.getOrNull()
 
@@ -180,7 +181,7 @@ class DnsProxy @Inject constructor(
         private fun headerOnly(request: DnsRequest, query: ByteArray, queryLength: Int, flagsLow: Int): ByteArray {
             val response = query.copyOf(queryLength)
             response[0] = (request.id ushr 8).toByte(); response[1] = request.id.toByte()
-            response[2] = 0x85.toByte(); response[3] = flagsLow.toByte()
+            response[2] = 0x81.toByte(); response[3] = flagsLow.toByte()
             response[4] = 0; response[5] = 1; response[6] = 0; response[7] = 0; response[8] = 0; response[9] = 0; response[10] = 0; response[11] = 0
             return response
         }
@@ -198,10 +199,21 @@ class DnsProxy @Inject constructor(
             return response
         }
 
+        fun isValidForRequest(message: ByteArray, request: DnsRequest): Boolean {
+            if (message.size < 12) return false
+            val id = readU16(message, 0)
+            val flags = readU16(message, 2)
+            if (id != request.id || flags and 0x8000 == 0) return false
+            val questionCount = readU16(message, 4)
+            if (questionCount != 1) return false
+            val parsed = runCatching { DnsRequest.parse(message, message.size) }.getOrNull() ?: return false
+            return parsed.domain == request.domain && parsed.qType == request.qType && (parsed.qClass == request.qClass || parsed.qClass == 1)
+        }
+
         fun minimumAnswerTtl(message: ByteArray): Int {
             if (message.size < 12) return 1
             val answerCount = readU16(message, 6); if (answerCount == 0) return 1
-            var pos = 12; pos = skipName(message, pos) + 4; var minTtl = Int.MAX_VALUE
+            var pos = skipName(message, 12) + 4; var minTtl = Int.MAX_VALUE
             repeat(answerCount) {
                 pos = skipName(message, pos); if (pos + 10 > message.size) return@repeat
                 val type = readU16(message, pos); val ttl = readU32(message, pos + 4); val rdLength = readU16(message, pos + 8); pos += 10

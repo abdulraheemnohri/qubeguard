@@ -23,8 +23,8 @@ import javax.inject.Inject
  * DNS-only local VPN.
  *
  * QubeGuard does not claim to be a general IP router. Only DNS packets sent to
- * the VPN DNS address are consumed from the TUN interface; all normal traffic
- * remains on Android's underlying network.
+ * the VPN DNS address are consumed from the TUN interface; normal application
+ * traffic remains on Android's underlying network.
  */
 @AndroidEntryPoint
 class VpnServiceImplementation : VpnService() {
@@ -67,62 +67,64 @@ class VpnServiceImplementation : VpnService() {
             runCatching { builder.addDisallowedApplication(packageName) }
         }
 
-        val established = runCatching { builder.establish() }.getOrNull() ?: run {
+        vpnInterface = runCatching { builder.establish() }.getOrNull() ?: run {
             stopSelf()
             return
         }
-        vpnInterface = established
         isRunning = true
 
-        // The proxy is bound locally and the TUN loop is the only component
-        // touching the VPN packet stream. This removes the previous duplicate
-        // UDP:5353 bind and fixes the incorrect full-tunnel architecture.
         dnsProxy.setSocketProtector { socket -> protect(socket) }
         dnsProxy.start()
-
         worker = Thread(::runTunLoop, "QubeGuard-DNS-TUN").also { it.start() }
     }
 
     private fun runTunLoop() {
         val descriptor = vpnInterface ?: return
+        val inputFd = runCatching { ParcelFileDescriptor.dup(descriptor.fileDescriptor) }.getOrNull()
+        val outputFd = runCatching { ParcelFileDescriptor.dup(descriptor.fileDescriptor) }.getOrNull()
+        if (inputFd == null || outputFd == null) {
+            inputFd?.close()
+            outputFd?.close()
+            stopSelf()
+            return
+        }
+
         try {
-            FileInputStream(descriptor.fileDescriptor).use { input ->
-                FileOutputStream(descriptor.fileDescriptor).use { output ->
+            FileInputStream(inputFd.fileDescriptor).use { input ->
+                FileOutputStream(outputFd.fileDescriptor).use { output ->
                     val packet = ByteArray(32767)
                     while (isRunning) {
                         val count = input.read(packet)
                         if (count <= 0) continue
-                        val requestPacket = packet.copyOf(count)
-                        val dnsRequest = DnsTunPacketCodec.extractDnsQuery(requestPacket) ?: continue
+                        val dnsRequest = DnsTunPacketCodec.extractDnsQuery(packet.copyOf(count)) ?: continue
                         val response = queryLocalProxy(dnsRequest.payload) ?: continue
-                        val responsePacket = DnsTunPacketCodec.buildDnsResponse(dnsRequest, response)
-                        output.write(responsePacket)
+                        output.write(DnsTunPacketCodec.buildDnsResponse(dnsRequest, response))
                         output.flush()
                     }
                 }
             }
         } catch (_: Exception) {
             if (isRunning) stopSelf()
+        } finally {
+            runCatching { inputFd.close() }
+            runCatching { outputFd.close() }
         }
     }
 
-    private fun queryLocalProxy(payload: ByteArray): ByteArray? {
-        return runCatching {
-            DatagramSocket().use { socket ->
-                socket.soTimeout = DNS_PROXY_TIMEOUT_MS
-                protect(socket)
-                val proxy = InetAddress.getByName(LOOPBACK)
-                socket.send(DatagramPacket(payload, payload.size, proxy, DNS_PROXY_PORT))
-                val responseBuffer = ByteArray(8192)
-                val response = DatagramPacket(responseBuffer, responseBuffer.size)
-                socket.receive(response)
-                response.data.copyOf(response.length)
-            }
-        }.getOrNull()
-    }
+    private fun queryLocalProxy(payload: ByteArray): ByteArray? = runCatching {
+        DatagramSocket().use { socket ->
+            socket.soTimeout = DNS_PROXY_TIMEOUT_MS
+            check(protect(socket)) { "Unable to protect DNS proxy socket" }
+            val proxy = InetAddress.getByName(LOOPBACK)
+            socket.send(DatagramPacket(payload, payload.size, proxy, DNS_PROXY_PORT))
+            val responseBuffer = ByteArray(8192)
+            val response = DatagramPacket(responseBuffer, responseBuffer.size)
+            socket.receive(response)
+            response.data.copyOf(response.length)
+        }
+    }.getOrNull()
 
     private fun stopVpn() {
-        if (!isRunning && vpnInterface == null) return
         isRunning = false
         dnsProxy.stop()
         worker?.interrupt()

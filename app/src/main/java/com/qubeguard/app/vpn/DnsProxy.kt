@@ -51,7 +51,8 @@ class DnsProxy @Inject constructor(
                 socket?.receive(packet) ?: break
                 val request = DnsRequest.parse(packet.data, packet.length)
                 val cacheKey = "${request.domain}|${request.qType}|${request.qClass}"
-                dnsCache.get(cacheKey)?.let { cached ->
+                val cached = dnsCache.get(cacheKey)
+                if (cached != null) {
                     val response = rewriteTransactionId(cached, request.id)
                     socket?.send(DatagramPacket(response, response.size, packet.address, packet.port))
                     log(request.domain, false, "DNS cache hit")

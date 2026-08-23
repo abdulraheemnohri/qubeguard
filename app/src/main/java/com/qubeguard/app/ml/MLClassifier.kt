@@ -33,6 +33,7 @@ class MLClassifier @Inject constructor(
     fun isBlocked(url: String): Boolean = transformer.isBlocked(url)
 
     /** The selected model has no tracker class; deterministic lists handle trackers. */
+    @Suppress("UNUSED_PARAMETER")
     fun isTracker(url: String): Boolean = false
 
     fun isMalware(url: String): Boolean = classify(url) == TransformerUrlClassifier.MALWARE

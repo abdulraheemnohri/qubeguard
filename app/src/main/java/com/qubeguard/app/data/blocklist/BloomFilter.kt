@@ -29,10 +29,10 @@ class BloomFilter(
     private fun index(hash: Long): Int = (hash and Long.MAX_VALUE).rem(size.toLong()).toInt()
 
     private fun hash(domain: String, seed: Int): Long {
-        var h = 0xCBF29CE484222325L xor seed.toLong()
+        var h = 0xCBF29CE484222325UL.toLong() xor seed.toLong()
         for (ch in domain) {
             h = h xor ch.code.toLong()
-            h *= 0x100000001B3L
+            h *= 1099511628211L
         }
         return h
     }

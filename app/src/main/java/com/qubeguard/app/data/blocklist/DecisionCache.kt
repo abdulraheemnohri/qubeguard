@@ -4,28 +4,34 @@ import android.util.LruCache
 import javax.inject.Inject
 import javax.inject.Singleton
 
-/**
- * Fast in-memory LRU Decision Cache for Instant O(1) URL blocking decisions in WebView & DNS Proxy.
- */
+/** Bounded in-memory cache for deterministic firewall decisions. */
 @Singleton
 class DecisionCache @Inject constructor() {
-    private val cache = LruCache<String, Boolean>(2000)
+    private data class Entry(val blocked: Boolean, val expiresAt: Long)
+    private val cache = LruCache<String, Entry>(2000)
 
-    fun get(urlOrDomain: String): Boolean? {
+    fun get(input: String): Boolean? {
+        val key = normalize(input)
         synchronized(cache) {
-            return cache.get(urlOrDomain)
+            val entry = cache.get(key) ?: return null
+            if (entry.expiresAt <= System.currentTimeMillis()) {
+                cache.remove(key)
+                return null
+            }
+            return entry.blocked
         }
     }
 
-    fun put(urlOrDomain: String, isBlocked: Boolean) {
+    fun put(input: String, blocked: Boolean, ttlMs: Long = 30_000L) {
+        if (ttlMs <= 0) return
         synchronized(cache) {
-            cache.put(urlOrDomain, isBlocked)
+            cache.put(normalize(input), Entry(blocked, System.currentTimeMillis() + ttlMs))
         }
     }
 
     fun clear() {
-        synchronized(cache) {
-            cache.evictAll()
-        }
+        synchronized(cache) { cache.evictAll() }
     }
+
+    private fun normalize(value: String): String = value.trim().lowercase()
 }

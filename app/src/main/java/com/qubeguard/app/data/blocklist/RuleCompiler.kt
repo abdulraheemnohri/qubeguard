@@ -1,160 +1,105 @@
 package com.qubeguard.app.data.blocklist
 
+import java.net.URI
+import java.net.URISyntaxException
 import javax.inject.Inject
 
-/**
- * Compiles blocklist rules into optimized data structures for fast lookup.
- * Uses Radix Tree, Bloom Filter, and Regex Engine for efficient matching.
- */
+/** Builds immutable compiled rule snapshots so readers never observe a partial rebuild. */
 class RuleCompiler @Inject constructor() {
-    private val blocklistTree = RadixTree()
-    private val allowlistTree = RadixTree()
-    private val bloomFilter = BloomFilter()
-    private val regexEngine = RegexEngine()
+    private data class CompiledRules(
+        val blocklistTree: RadixTree,
+        val allowlistTree: RadixTree,
+        val bloomFilter: BloomFilter,
+        val regexEngine: RegexEngine
+    )
 
-    /**
-     * Compiles a list of BlocklistRule objects into optimized data structures.
-     * @param rules The list of rules to compile.
-     */
+    @Volatile
+    private var snapshot = emptySnapshot()
+
     fun compileRules(rules: List<BlocklistRule>) {
-        clear()
+        val blockTree = RadixTree()
+        val allowTree = RadixTree()
+        val bloom = BloomFilter()
+        val regex = RegexEngine()
 
         for (rule in rules) {
-            if (rule.isAllowlist) {
-                when (rule.type) {
-                    "domain", "ip" -> allowlistTree.insert(rule.rule, true)
-                    "url" -> {
-                        val domain = extractDomain(rule.rule)
-                        if (domain.isNotEmpty()) allowlistTree.insert(domain, true)
-                        if (rule.rule.contains("*") || rule.rule.contains("^") || rule.rule.contains("||")) {
-                            regexEngine.addPattern(convertGlobToRegex(rule.rule), isBlocked = false)
-                        }
-                    }
-                    "regex" -> regexEngine.addPattern(rule.rule, isBlocked = false)
+            val value = rule.rule.trim()
+            if (value.isEmpty()) continue
+            val targetTree = if (rule.isAllowlist) allowTree else blockTree
+            when (rule.type.lowercase()) {
+                "domain", "ip" -> {
+                    targetTree.insert(canonicalDomain(value), true)
+                    if (!rule.isAllowlist) bloom.add(canonicalDomain(value))
                 }
-            } else {
-                when (rule.type) {
-                    "domain", "ip" -> {
-                        blocklistTree.insert(rule.rule, true)
-                        bloomFilter.add(rule.rule)
+                "url" -> {
+                    val domain = extractDomain(value)
+                    if (domain.isNotEmpty()) {
+                        targetTree.insert(domain, true)
+                        if (!rule.isAllowlist) bloom.add(domain)
                     }
-                    "url" -> {
-                        val domain = extractDomain(rule.rule)
-                        if (domain.isNotEmpty()) {
-                            blocklistTree.insert(domain, true)
-                            bloomFilter.add(domain)
-                        }
-                        if (rule.rule.contains("*") || rule.rule.contains("^") || rule.rule.contains("||")) {
-                            regexEngine.addPattern(convertGlobToRegex(rule.rule), isBlocked = true)
-                        }
+                    if (value.contains('*') || value.contains('^') || value.startsWith("||") || value.startsWith('|')) {
+                        regex.addPattern(convertGlobToRegex(value), isBlocked = !rule.isAllowlist)
                     }
-                    "regex" -> regexEngine.addPattern(rule.rule, isBlocked = true)
                 }
+                "regex" -> regex.addPattern(value, isBlocked = !rule.isAllowlist)
             }
         }
+        snapshot = CompiledRules(blockTree, allowTree, bloom, regex)
     }
 
-    /**
-     * Checks if a domain or URL is blocked.
-     * @param input The domain or URL to check.
-     * @return True if the input is blocked.
-     */
     fun isBlocked(input: String): Boolean {
+        val current = snapshot
         val domain = extractDomain(input)
-
-        if (bloomFilter.mightContain(domain) && blocklistTree.isBlocked(domain)) {
-            return true
-        }
-
-        if (regexEngine.isBlocked(input)) {
-            return true
-        }
-
-        return false
+        if (current.allowlistTree.isBlocked(domain)) return false
+        if (current.regexEngine.isAllowed(input)) return false
+        if (current.bloomFilter.mightContain(domain) && current.blocklistTree.isBlocked(domain)) return true
+        return current.regexEngine.isBlocked(input)
     }
 
-    /**
-     * Checks if a domain or URL is allowed (whitelisted).
-     * @param input The domain or URL to check.
-     * @return True if the input is allowed.
-     */
     fun isAllowed(input: String): Boolean {
-        val domain = extractDomain(input)
-
-        if (allowlistTree.isBlocked(domain)) {
-            return true
-        }
-
-        if (regexEngine.isAllowed(input)) {
-            return true
-        }
-
-        return false
+        val current = snapshot
+        return current.allowlistTree.isBlocked(extractDomain(input)) || current.regexEngine.isAllowed(input)
     }
 
-    /**
-     * Clears all compiled rules.
-     */
-    fun clear() {
-        blocklistTree.clear()
-        allowlistTree.clear()
-        bloomFilter.clear()
-        regexEngine.clear()
+    fun clear() { snapshot = emptySnapshot() }
+
+    private fun extractDomain(input: String): String {
+        val value = input.trim().lowercase().trimEnd('.')
+        if (value.isEmpty()) return ""
+        return try {
+            val uri = if (value.contains("://")) URI(value) else URI("https://$value")
+            (uri.host ?: value.substringBefore('/').substringBefore('?').substringBefore('#'))
+                .trim().trimEnd('.').lowercase()
+                .removePrefix("[").removeSuffix("]")
+        } catch (_: URISyntaxException) {
+            value.substringBefore('/').substringBefore('?').substringBefore('#').substringBeforeLast(':').trimEnd('.')
+        }
     }
+
+    private fun canonicalDomain(value: String): String = extractDomain(value).ifEmpty { value.trim().trimEnd('.').lowercase() }
 
     private fun convertGlobToRegex(pattern: String): String {
-        if (pattern.isBlank()) return ".*"
         var p = pattern.trim()
         var prefix = ""
         if (p.startsWith("||")) {
-            prefix = "^https?://(?:[a-zA-Z0-9\\-]+\\.)*"
+            prefix = "^https?://(?:[^/?#]+\\.)*"
             p = p.substring(2)
         } else if (p.startsWith("|")) {
             prefix = "^"
             p = p.substring(1)
         }
-
-        var suffix = ""
-        if (p.endsWith("|")) {
-            suffix = "$"
-            p = p.dropLast(1)
-        }
-
-        val sb = StringBuilder(prefix)
+        val suffix = if (p.endsWith("|")) { p = p.dropLast(1); "$" } else ""
+        val out = StringBuilder(prefix)
         for (ch in p) {
             when (ch) {
-                '*' -> sb.append(".*")
-                '^' -> sb.append("(?:[^a-zA-Z0-9\\._\\-%]|$)")
-                '.', '?', '+', '(', ')', '[', ']', '{', '}', '\\', '$' -> sb.append('\\').append(ch)
-                else -> sb.append(ch)
+                '*' -> out.append(".*")
+                '^' -> out.append("(?:[^a-zA-Z0-9._%-]|$)")
+                '.', '?', '+', '(', ')', '[', ']', '{', '}', '\\', '$' -> out.append('\\').append(ch)
+                else -> out.append(ch)
             }
         }
-        sb.append(suffix)
-        return sb.toString()
+        return out.append(suffix).toString()
     }
 
-    /**
-     * Extracts the domain from a URL or domain string.
-     * @param input The URL or domain string.
-     * @return The extracted domain.
-     */
-    private fun extractDomain(input: String): String {
-        val normalizedInput = input.lowercase().trim()
-
-        var domain = normalizedInput
-            .replace("http://".toRegex(), "")
-            .replace("https://".toRegex(), "")
-
-        val slashIndex = domain.indexOf('/')
-        if (slashIndex != -1) {
-            domain = domain.substring(0, slashIndex)
-        }
-
-        val colonIndex = domain.indexOf(':')
-        if (colonIndex != -1) {
-            domain = domain.substring(0, colonIndex)
-        }
-
-        return domain
-    }
+    private fun emptySnapshot() = CompiledRules(RadixTree(), RadixTree(), BloomFilter(), RegexEngine())
 }

@@ -2,64 +2,33 @@ package com.qubeguard.app.data.blocklist
 
 import java.util.regex.Pattern
 
-/**
- * A Regex Engine for matching complex URL patterns.
- * Used for rules that cannot be efficiently matched with Radix Tree or Bloom Filter.
- */
-class RegexEngine {
-    private val patterns = mutableListOf<PatternEntry>()
+/** Bounded regex matcher for trusted/normalized blocklist rules. */
+class RegexEngine(
+    private val maxPatternLength: Int = 4096,
+    private val maxPatterns: Int = 50_000
+) {
+    private val patterns = ArrayList<PatternEntry>()
 
-    /**
-     * Adds a regex pattern to the engine.
-     * @param pattern The regex pattern to add.
-     * @param isBlocked Whether this pattern is blocked or allowed.
-     */
     fun addPattern(pattern: String, isBlocked: Boolean) {
-        try {
-            val compiledPattern = Pattern.compile(pattern, Pattern.CASE_INSENSITIVE)
-            patterns.add(PatternEntry(compiledPattern, isBlocked))
-        } catch (_: Exception) {
-            // Log or ignore invalid regex pattern
+        if (pattern.isBlank() || pattern.length > maxPatternLength || patterns.size >= maxPatterns) return
+        runCatching {
+            patterns += PatternEntry(Pattern.compile(pattern, Pattern.CASE_INSENSITIVE), isBlocked)
         }
     }
 
-    /**
-     * Checks if a URL matches any of the blocked patterns.
-     * @param url The URL to check.
-     * @return True if the URL matches any blocked pattern.
-     */
-    fun isBlocked(url: String): Boolean {
+    fun isBlocked(input: String): Boolean = matches(input, blocked = true)
+
+    fun isAllowed(input: String): Boolean = matches(input, blocked = false)
+
+    private fun matches(input: String, blocked: Boolean): Boolean {
+        if (input.length > 32_768) return false
         for (entry in patterns) {
-            if (entry.isBlocked && entry.pattern.matcher(url).find()) {
-                return true
-            }
+            if (entry.isBlocked == blocked && entry.pattern.matcher(input).find()) return true
         }
         return false
     }
 
-    /**
-     * Checks if a URL matches any of the allowed patterns.
-     * @param url The URL to check.
-     * @return True if the URL matches any allowed pattern.
-     */
-    fun isAllowed(url: String): Boolean {
-        for (entry in patterns) {
-            if (!entry.isBlocked && entry.pattern.matcher(url).find()) {
-                return true
-            }
-        }
-        return false
-    }
+    fun clear() = patterns.clear()
 
-    /**
-     * Clears all patterns from the engine.
-     */
-    fun clear() {
-        patterns.clear()
-    }
-
-    private data class PatternEntry(
-        val pattern: Pattern,
-        val isBlocked: Boolean
-    )
+    private data class PatternEntry(val pattern: Pattern, val isBlocked: Boolean)
 }

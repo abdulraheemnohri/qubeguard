@@ -5,11 +5,12 @@ import javax.inject.Singleton
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
-/** Layer 1 deterministic firewall. Compilation is serialized so concurrent requests cannot race initialization. */
+/** Layer 1 deterministic firewall. Compilation is serialized and decisions are cached briefly. */
 @Singleton
 class DeterministicBlocker @Inject constructor(
     private val ruleCompiler: RuleCompiler,
-    private val blocklistDao: BlocklistDao
+    private val blocklistDao: BlocklistDao,
+    private val decisionCache: DecisionCache
 ) {
     private val initializationMutex = Mutex()
     @Volatile private var isInitialized = false
@@ -21,18 +22,25 @@ class DeterministicBlocker @Inject constructor(
             ruleCompiler.compileRules(
                 blocklistDao.getAllBlocklistRules() + blocklistDao.getAllAllowlistRules()
             )
+            decisionCache.clear()
             isInitialized = true
         }
     }
 
     fun isBlockedFast(input: String): Boolean {
         if (!isInitialized) return false
-        return ruleCompiler.isBlocked(input)
+        decisionCache.get(input)?.let { return it }
+        val result = ruleCompiler.isBlocked(input)
+        decisionCache.put(input, result)
+        return result
     }
 
     suspend fun isBlocked(input: String): Boolean {
         ensureInitialized()
-        return ruleCompiler.isBlocked(input)
+        decisionCache.get(input)?.let { return it }
+        val result = ruleCompiler.isBlocked(input)
+        decisionCache.put(input, result)
+        return result
     }
 
     suspend fun isAllowed(input: String): Boolean {
@@ -45,12 +53,14 @@ class DeterministicBlocker @Inject constructor(
             ruleCompiler.compileRules(
                 blocklistDao.getAllBlocklistRules() + blocklistDao.getAllAllowlistRules()
             )
+            decisionCache.clear()
             isInitialized = true
         }
     }
 
     fun clear() {
         ruleCompiler.clear()
+        decisionCache.clear()
         isInitialized = false
     }
 }

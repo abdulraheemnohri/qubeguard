@@ -36,8 +36,10 @@ class PolicyEngine @Inject constructor(
             return BlockDecision(false, "ML model unavailable; deterministic policy only", 0, 0f)
         }
 
+        // Single ML inference pass to avoid duplicate ONNX prediction overhead
+        val scores = mlClassifier.getConfidenceScores(input)
         val category = mlClassifier.classify(input)
-        val confidence = mlClassifier.getConfidenceScores(input)[category] ?: 0f
+        val confidence = scores[category] ?: 0f
         val threshold = mlThresholds[category]
 
         if (threshold != null && confidence >= threshold) {

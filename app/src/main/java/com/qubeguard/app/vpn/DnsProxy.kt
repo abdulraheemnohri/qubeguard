@@ -2,8 +2,8 @@ package com.qubeguard.app.vpn
 
 import android.content.Context
 import com.qubeguard.app.data.blocklist.BlocklistDao
-import com.qubeguard.app.data.blocklist.DeterministicBlocker
 import com.qubeguard.app.data.blocklist.DnsLogEntity
+import com.qubeguard.app.policy.PolicyEngine
 import dagger.hilt.android.qualifiers.ApplicationContext
 import java.net.DatagramPacket
 import java.net.DatagramSocket
@@ -15,7 +15,7 @@ import kotlinx.coroutines.runBlocking
 /** Lightweight Pi-hole style DNS proxy used by the VPN layer. */
 class DnsProxy @Inject constructor(
     @ApplicationContext private val context: Context,
-    private val deterministicBlocker: DeterministicBlocker,
+    private val policyEngine: PolicyEngine,
     private val blocklistDao: BlocklistDao
 ) {
     private var socket: DatagramSocket? = null
@@ -54,27 +54,28 @@ class DnsProxy @Inject constructor(
                             continue
                         }
 
-                        // 2. Deterministic Blocklist Check
-                        val blocked = runBlocking { deterministicBlocker.isBlocked(request.domain) }
+                        // 2. Policy Engine Check
+                        val decision = runBlocking { policyEngine.decide(request.domain, isDnsRequest = true) }
 
                         runBlocking {
                             blocklistDao.insertDnsLog(
                                 DnsLogEntity(
                                     id = UUID.randomUUID().toString(),
                                     domain = request.domain,
-                                    isBlocked = blocked,
-                                    reason = if (blocked) "Gravity Blocklist" else "Allowed",
+                                    isBlocked = decision.isBlocked,
+                                    reason = decision.reason,
                                     timestamp = System.currentTimeMillis().toString()
                                 )
                             )
                         }
 
-                        if (blocked) {
+                        if (decision.isBlocked) {
                             val mode = getSinkholeMode()
-                            val response = when (mode) {
-                                "NULL_IP", "0.0.0.0" -> DnsResponse.createIpResponse(request, "0.0.0.0", packet.data, packet.length)
-                                "NODATA" -> DnsResponse.createNoDataResponse(request, buffer, packet.length)
-                                "REFUSED" -> DnsResponse.createRefusedResponse(request, buffer, packet.length)
+                            val response = when {
+                                request.qType == 28 -> DnsResponse.createNoDataResponse(request, buffer, packet.length) // AAAA query -> NODATA
+                                mode == "NULL_IP" || mode == "0.0.0.0" -> DnsResponse.createIpResponse(request, "0.0.0.0", packet.data, packet.length)
+                                mode == "NODATA" -> DnsResponse.createNoDataResponse(request, buffer, packet.length)
+                                mode == "REFUSED" -> DnsResponse.createRefusedResponse(request, buffer, packet.length)
                                 else -> DnsResponse.createNxDomainResponse(request, buffer, packet.length)
                             }
                             socket?.send(DatagramPacket(response, response.size, packet.address, packet.port))
@@ -137,7 +138,7 @@ class DnsProxy @Inject constructor(
         socket = null
     }
 
-    data class DnsRequest(val id: Int, val domain: String) {
+    data class DnsRequest(val id: Int, val domain: String, val qType: Int = 1) {
         companion object {
             fun parse(data: ByteArray, length: Int): DnsRequest {
                 require(length >= 12) { "Packet length too short for DNS header" }
@@ -152,7 +153,11 @@ class DnsProxy @Inject constructor(
                     builder.append(String(data, position, labelLength, Charsets.UTF_8))
                     position += labelLength
                 }
-                return DnsRequest(id, builder.toString().trimEnd('.').lowercase())
+                var qType = 1
+                if (position + 2 <= length) {
+                    qType = ((data[position].toInt() and 0xFF) shl 8) or (data[position + 1].toInt() and 0xFF)
+                }
+                return DnsRequest(id, builder.toString().trimEnd('.').lowercase(), qType)
             }
         }
     }

@@ -62,11 +62,7 @@ class RuleCompiler @Inject constructor() {
     fun isBlocked(input: String): Boolean {
         val domain = extractDomain(input)
 
-        if (!bloomFilter.mightContain(domain)) {
-            return false
-        }
-
-        if (blocklistTree.isBlocked(domain)) {
+        if (bloomFilter.mightContain(domain) && blocklistTree.isBlocked(domain)) {
             return true
         }
 

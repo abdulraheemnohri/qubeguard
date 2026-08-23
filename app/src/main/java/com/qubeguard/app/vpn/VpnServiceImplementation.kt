@@ -56,7 +56,7 @@ class VpnServiceImplementation : VpnService() {
         val builder = Builder()
             .setSession("QubeGuard VPN")
             .addAddress("10.0.0.2", 24)
-            .addDnsServer("127.0.0.1")
+            .addDnsServer("1.1.1.1")
             .addRoute("0.0.0.0", 0)
             .setMtu(1500)
 

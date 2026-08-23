@@ -72,18 +72,14 @@ class BlocklistFetcherWorker @AssistedInject constructor(
                 lastUpdated = updatedAt
             )
 
-            blocklistDao.deleteRulesBySource(source.id)
-            if (normalizedRules.isNotEmpty()) {
-                blocklistDao.insertRules(normalizedRules)
-            }
-
-            blocklistDao.updateSource(
-                source.copy(
-                    version = getVersionFromContent(rawContent),
-                    sha256Hash = sha256Hash,
-                    lastUpdated = updatedAt
-                )
+            val updatedSource = source.copy(
+                version = getVersionFromContent(rawContent),
+                sha256Hash = sha256Hash,
+                lastUpdated = updatedAt
             )
+
+            // Atomic database update with transaction rollback protection
+            blocklistDao.replaceRulesForSourceAtomic(source.id, normalizedRules, updatedSource)
         }
     }
 

@@ -1,6 +1,7 @@
 package com.qubeguard.app.ui
 
 import android.app.Application
+import android.content.Context
 import android.content.Intent
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.LiveData
@@ -20,7 +21,9 @@ class MainViewModel @Inject constructor(
     private val blocklistDao: BlocklistDao
 ) : AndroidViewModel(application) {
 
-    private val _isVpnRunning = MutableLiveData(false)
+    private val prefs = application.getSharedPreferences("qubeguard_settings", Context.MODE_PRIVATE)
+
+    private val _isVpnRunning = MutableLiveData(prefs.getBoolean("is_protection_active", false))
     val isVpnRunning: LiveData<Boolean> = _isVpnRunning
 
     private val _totalQueries = MutableLiveData(0)
@@ -51,10 +54,14 @@ class MainViewModel @Inject constructor(
 
     init {
         loadAnalytics()
+        if (_isVpnRunning.value == true) {
+            startConnectionTimer()
+        }
     }
 
     fun loadAnalytics() {
         viewModelScope.launch {
+            _isVpnRunning.value = prefs.getBoolean("is_protection_active", false)
             val logs = blocklistDao.getRecentDnsLogs(limit = 500)
             _totalQueries.value = logs.size
             val blocked = logs.filter { it.isBlocked }
@@ -71,6 +78,7 @@ class MainViewModel @Inject constructor(
 
     fun startVpn() {
         val context = getApplication<Application>().applicationContext
+        prefs.edit().putBoolean("is_protection_active", true).apply()
         context.startService(Intent(context, QubeGuardService::class.java).apply {
             action = QubeGuardService.ACTION_START
         })
@@ -81,6 +89,7 @@ class MainViewModel @Inject constructor(
 
     fun stopVpn() {
         val context = getApplication<Application>().applicationContext
+        prefs.edit().putBoolean("is_protection_active", false).apply()
         context.stopService(Intent(context, QubeGuardService::class.java).apply {
             action = QubeGuardService.ACTION_STOP
         })
@@ -90,7 +99,6 @@ class MainViewModel @Inject constructor(
 
     private fun startConnectionTimer() {
         timerJob?.cancel()
-        _connectionTimeSeconds.value = 0L
         timerJob = viewModelScope.launch {
             while (true) {
                 delay(1000)

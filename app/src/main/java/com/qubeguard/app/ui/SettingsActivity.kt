@@ -68,7 +68,8 @@ fun SettingsScreen(
     onNavigateToDnsLogs: (() -> Unit)? = null,
     onNavigateToBypass: (() -> Unit)? = null,
     onNavigateToCustomRules: (() -> Unit)? = null,
-    onNavigateToLocalDns: (() -> Unit)? = null
+    onNavigateToLocalDns: (() -> Unit)? = null,
+    onNavigateToSystemLogs: (() -> Unit)? = null
 ) {
     val viewModel: SettingsViewModel = hiltViewModel()
     val context = LocalContext.current
@@ -177,7 +178,7 @@ fun SettingsScreen(
             }
         }
 
-        SettingsCard("Network, VPN & Split Tunneling") {
+        SettingsCard("Network, VPN & Logs") {
             Text("Selected Upstream DNS", style = MaterialTheme.typography.labelLarge)
             Box {
                 OutlinedButton(onClick = { showDnsMenu = true }) {
@@ -198,10 +199,13 @@ fun SettingsScreen(
             Spacer(Modifier.height(4.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 if (onNavigateToDnsLogs != null) {
-                    Button(onClick = onNavigateToDnsLogs) { Text("View DNS Logs") }
+                    Button(onClick = onNavigateToDnsLogs) { Text("DNS Logs") }
+                }
+                if (onNavigateToSystemLogs != null) {
+                    OutlinedButton(onClick = onNavigateToSystemLogs) { Text("System Logs") }
                 }
                 if (onNavigateToBypass != null) {
-                    OutlinedButton(onClick = onNavigateToBypass) { Text("Per-App Split Tunneling") }
+                    OutlinedButton(onClick = onNavigateToBypass) { Text("Split Tunneling") }
                 }
             }
         }

@@ -1,6 +1,7 @@
 package com.qubeguard.app.engine
 
 import android.app.Service
+import android.content.Context
 import android.content.Intent
 import android.os.IBinder
 import androidx.work.Constraints
@@ -35,18 +36,30 @@ class QubeGuardService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
-            ACTION_STOP -> stopSelf()
-            ACTION_START, null -> startProtection()
+            ACTION_STOP -> {
+                setProtectionActive(false)
+                stopSelf()
+            }
+            ACTION_START, null -> {
+                setProtectionActive(true)
+                startProtection()
+            }
         }
         return START_STICKY
     }
 
     override fun onDestroy() {
         running = false
+        setProtectionActive(false)
         stopVpnService()
         mlClassifier.close()
         scope.cancel()
         super.onDestroy()
+    }
+
+    private fun setProtectionActive(active: Boolean) {
+        val prefs = getSharedPreferences("qubeguard_settings", Context.MODE_PRIVATE)
+        prefs.edit().putBoolean("is_protection_active", active).apply()
     }
 
     private fun startProtection() {
@@ -55,7 +68,6 @@ class QubeGuardService : Service() {
         startVpnService()
         scheduleBlocklistUpdates()
 
-        // Do not download AI here. Load only an already-installed optional model.
         scope.launch {
             runCatching {
                 if (modelDownloader.isModelReady()) mlClassifier.loadModel()

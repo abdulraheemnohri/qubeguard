@@ -196,6 +196,16 @@ fun BrowserScreen(
 
     val activeTab = tabs.find { it.id == activeTabId } ?: tabs.firstOrNull()
 
+    LaunchedEffect(activeTabId, activeTab?.url) {
+        val targetUrl = activeTab?.url ?: initialUrl
+        urlInput = targetUrl
+        webView?.let {
+            if (it.url != targetUrl) {
+                it.loadUrl(targetUrl)
+            }
+        }
+    }
+
     LaunchedEffect(selectedQube) {
         selectedQube?.let { qube ->
             webView?.setQubeId(qube.id)
@@ -503,6 +513,12 @@ fun BrowserScreen(
                         }
                         webView = this
                         loadUrl(activeTab?.url ?: initialUrl)
+                    }
+                },
+                update = { view ->
+                    val targetUrl = activeTab?.url ?: initialUrl
+                    if (view.url != targetUrl) {
+                        view.loadUrl(targetUrl)
                     }
                 },
                 modifier = Modifier.fillMaxSize()
